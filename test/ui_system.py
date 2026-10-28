@@ -1,0 +1,36 @@
+"""Набор системы уравнений с клавиатуры приложения."""
+import sys, subprocess, time, os
+from playwright.sync_api import sync_playwright
+ROOT = os.path.join(os.path.dirname(__file__), '..', 'dist', 'apk-assets'); OUT = sys.argv[1]; os.makedirs(OUT, exist_ok=True)
+srv = subprocess.Popen([sys.executable, '-m', 'http.server', '8769', '-d', ROOT], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL); time.sleep(0.8)
+ok, bad = [], []
+def check(n, c, i=''): (ok if c else bad).append(n + ('' if c else f' :: {i}'))
+try:
+    with sync_playwright() as p:
+        b = p.chromium.launch(); ctx = b.new_context(viewport={'width': 390, 'height': 844}, device_scale_factor=2, is_mobile=True, has_touch=True, color_scheme='dark')
+        pg = ctx.new_page(); logs = []; pg.on('pageerror', lambda e: logs.append(str(e)))
+        pg.goto('http://localhost:8769/index.html'); pg.wait_for_function('window.MATLIST_DEBUG !== undefined'); pg.wait_for_timeout(400)
+        pg.click('#bMenu'); pg.click('#mNew'); pg.wait_for_timeout(300)
+        bx = pg.locator('#page').bounding_box(); pg.mouse.click(bx['x'] + 30, bx['y'] + 60); pg.wait_for_timeout(150)
+        tab = lambda t: pg.locator('.tabs button', has_text=t).dispatch_event('pointerdown')
+        def key(l): pg.locator('#keys button', has_text=l).first.dispatch_event('pointerdown'); pg.wait_for_timeout(70)
+        eq = lambda: (pg.locator('#kEq').dispatch_event('pointerdown'), pg.wait_for_timeout(120))
+        tab('∫Σ'); key('{ сист.')
+        tab('abc'); key('a'); tab('123'); key('+'); tab('abc'); key('b'); eq(); tab('123'); key('5')
+        mf = lambda: pg.evaluate("document.querySelector('.rg.editing math-field').getValue('latex')")
+        check('«=» внутри системы не завершает ввод', pg.locator('.rg.editing').count() == 1, mf())
+        pg.evaluate("document.querySelector('.rg.editing math-field').executeCommand('moveToNextPlaceholder')")
+        tab('abc'); key('a'); tab('123'); key('−'); tab('abc'); key('b'); eq(); tab('123'); key('1')
+        tab('∫Σ'); key('+ ур.'); tab('abc'); key('c'); eq(); tab('abc'); key('a'); tab('123'); key('+'); key('2')
+        lx = mf(); check('три строки в системе', lx.count('\\\\') == 2, lx)
+        pg.locator('#kEnd').dispatch_event('pointerdown'); pg.wait_for_timeout(80)
+        live = pg.evaluate("document.querySelector('.rg.editing .live').textContent")
+        pg.screenshot(path=f'{OUT}/sys_typing.png')
+        eq(); pg.wait_for_timeout(400)
+        r = pg.evaluate("MATLIST_DEBUG.S.regions.map(r => ({latex: r.latex, res: r.res, err: r.err}))")
+        check('система решена: a=3, b=2, c=5', len(r) == 1 and r[0]['res'] and 'a=3' in r[0]['res'] and 'b=2' in r[0]['res'] and 'c=5' in r[0]['res'], r)
+        pg.screenshot(path=f'{OUT}/sys_done.png')
+        check('без ошибок JS', not logs, logs)
+        b.close()
+finally: srv.terminate()
+print('OK:', *ok, sep='\n  '); print('FAIL:', *bad, sep='\n  ')

@@ -1,0 +1,53 @@
+plugins {
+    id 'com.android.application'
+}
+
+// номер сборки из GitHub Actions — чтобы новые APK ставились поверх старых
+def runNumber = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInteger()
+
+android {
+    namespace 'ru.matlist.app'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'ru.matlist.app'
+        minSdk 24
+        targetSdk 34
+        versionCode runNumber
+        versionName "0.3." + runNumber
+    }
+
+    signingConfigs {
+        // постоянный тестовый ключ: обновления устанавливаются поверх без удаления приложения
+        test {
+            storeFile file('../matlist-test.keystore')
+            storePassword 'matlist-test'
+            keyAlias 'matlist'
+            keyPassword 'matlist-test'
+        }
+    }
+
+    buildTypes {
+        debug {
+            signingConfig signingConfigs.test
+        }
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.test
+        }
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    // ресурсы страницы (index.html, mathlive.min.js, шрифты) не сжимать — WebView читает их напрямую
+    androidResources {
+        noCompress 'html', 'js', 'woff2'
+    }
+}

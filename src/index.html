@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#ffffff">
+<title>Матлист</title>
+<!--MATHLIVE_CSS-->
+<style>/*APP_CSS*/</style>
+</head>
+<body>
+<div class="loading" id="loading">Загрузка Матлиста…</div>
+<header class="top">
+  <button class="ib" id="bMenu" aria-label="Меню"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
+  <div class="title" id="title" title="Переименовать">Тестовый лист<small>Матлист · пробная версия 0.3</small></div>
+  <button class="ib" id="bZoomOut" aria-label="Уменьшить">−</button>
+  <button class="ib" id="bZoomIn" aria-label="Увеличить">+</button>
+  <button class="ib" id="bRecalc" aria-label="Пересчитать"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg></button>
+</header>
+<main class="sheetwrap" id="sheetwrap"><div class="page" id="page"></div><div class="rbar" id="rbar" style="display:none"></div></main>
+<section class="plotpanel" id="plotpanel">
+  <div class="ptabs">
+    <button data-t="data" class="on">Данные</button><button data-t="axes">Оси</button><button data-t="legend">Легенда</button><button data-t="bg">Фон</button>
+    <span class="sp"></span><button id="pFull" title="На весь экран">⤢</button><button id="pDone" class="pri">Готово</button>
+  </div>
+  <div class="pt" data-t="data">
+    <div class="row"><label>Ось Y</label><math-field id="py"></math-field></div>
+    <div class="row"><label>Ось X</label><math-field id="px"></math-field></div>
+    <p class="hint">Несколько кривых — через запятую. Палец по графику: двигать, щипок — масштаб, удержание — координаты, двойной тап — сброс.</p>
+  </div>
+  <div class="pt" data-t="axes">
+    <div class="axgrid">
+      <span></span><b>X</b><b>Y</b>
+      <label>Подпись</label><input id="pxl" type="text" placeholder="авто"><input id="pyl" type="text" placeholder="авто">
+      <label>От</label><input id="pxmin" type="number" step="any" inputmode="decimal" placeholder="авто"><input id="pymin" type="number" step="any" inputmode="decimal" placeholder="авто">
+      <label>До</label><input id="pxmax" type="number" step="any" inputmode="decimal" placeholder="авто"><input id="pymax" type="number" step="any" inputmode="decimal" placeholder="авто">
+      <label>Шкала</label><select id="plogx"><option value="">линейная</option><option value="1">логарифм.</option></select><select id="plogy"><option value="">линейная</option><option value="1">логарифм.</option></select>
+      <label>Числа</label><select id="pfx"><option value="auto">авто</option><option value="fix">фикс.</option><option value="exp">экспонента</option></select><select id="pfy"><option value="auto">авто</option><option value="fix">фикс.</option><option value="exp">экспонента</option></select>
+      <label>Знаков</label><input id="pdx" type="number" min="0" max="10" value="2"><input id="pdy" type="number" min="0" max="10" value="2">
+    </div>
+    <div class="opts">
+      <label><input id="pgrid" type="checkbox" checked> сетка</label>
+      <span>Размер <input id="pw" type="number" min="160" max="1200" step="10"> × <input id="ph" type="number" min="120" max="1000" step="10"></span>
+      <button id="pReset" class="sm">Сбросить вид</button>
+    </div>
+  </div>
+  <div class="pt" data-t="legend">
+    <div class="opts"><label>Легенда <select id="pleg"><option value="">авто</option><option value="1">показывать</option><option value="0">скрыть</option></select></label>
+      <label>Место <select id="plegpos"><option value="">справа вверху</option><option value="left">слева вверху</option><option value="bottom">справа внизу</option></select></label></div>
+    <div id="pseries" class="series"></div>
+  </div>
+  <div class="pt" data-t="bg">
+    <div class="opts"><button id="pBgPick" class="sm">Выбрать картинку…</button><button id="pBgDel" class="sm">Убрать</button>
+      <label>Прозрачность <input id="pBgOp" type="range" min="0.1" max="1" step="0.05"></label></div>
+    <div class="axgrid">
+      <span></span><b>X</b><b>Y</b>
+      <label>Край 1</label><input id="pbx0" type="number" step="any" inputmode="decimal" title="левый край"><input id="pby0" type="number" step="any" inputmode="decimal" title="нижний край">
+      <label>Край 2</label><input id="pbx1" type="number" step="any" inputmode="decimal" title="правый край"><input id="pby1" type="number" step="any" inputmode="decimal" title="верхний край">
+    </div>
+    <div class="opts"><label class="fit"><input id="pBgFit" type="checkbox"> подгонять пальцами</label><button id="pBgAxes" class="sm">Вписать в оси</button></div>
+    <p class="hint">Края картинки — в единицах осей (X: левый и правый, Y: нижний и верхний). В режиме подгонки палец двигает картинку, щипок растягивает её отдельно по X и по Y.</p>
+  </div>
+</section>
+<footer class="kbd" id="kbd">
+  <div class="tools nav">
+    <button id="kUndo" title="Отменить">↶</button><button id="kRedo" title="Повторить">↷</button>
+    <button id="kHome" title="В начало">⇤</button><button id="kLeft" title="Влево">←</button>
+    <button id="kUp" title="Вверх (в числитель, в степень)">↑</button><button id="kDown" title="Вниз (в знаменатель, в индекс)">↓</button>
+    <button id="kRight" title="Вправо">→</button><button id="kEnd" title="В конец">⇥</button>
+    <button id="kSel" class="sm" title="Расширить выделение влево">выдел.</button>
+  </div>
+  <div class="tools">
+    <button id="kDel">⌫</button>
+    <button id="kDef">:=</button><button id="kEq" class="eq">=</button>
+    <button id="kText" class="w">Текст</button><button id="kPlot" class="w">График</button><button id="kImg">Рис.</button><button id="kKbd" title="Системная клавиатура">⌨</button>
+    <button id="kOk" class="ok">✓</button>
+  </div>
+  <div class="tabs" id="tabs"></div>
+  <div class="keys" id="keys"></div>
+</footer>
+<div class="menu" id="menu"><div class="sheet">
+  <button id="mLib">Мои листы…</button>
+  <button id="mNew">Новый лист</button>
+  <button id="mTest">Тестовый лист функций</button>
+  <button id="mOpen">Открыть .xmcd…</button>
+  <button id="mSave">Сохранить как .xmcd</button>
+  <hr>
+  <button id="mFmt">Формат результатов…</button>
+  <button id="mFit">Масштаб: по ширине</button>
+  <button id="m100">Масштаб: 100 %</button>
+  <hr>
+  <button id="mAbout">О версии</button>
+</div></div>
+<input type="file" id="file" accept=".xmcd,application/xml,text/xml,*/*" hidden>
+<input type="file" id="imgfile" accept="image/*" hidden>
+<div class="full" id="full"><div class="fullbar"><span id="fullTitle"></span><button id="fullFit" class="sm">Сбросить вид</button><button id="fullClose" class="pri">Закрыть</button></div><canvas id="fullcv"></canvas><p class="hint">Палец — двигать, щипок — масштаб, удержание — координаты точки, двойной тап — сброс</p></div>
+<div class="dlg" id="dFmt"><div class="box">
+  <h3>Формат результатов</h3>
+  <div class="f"><span>Знаков после запятой</span><input id="fDec" type="number" min="0" max="15"></div>
+  <div class="f"><span>Порог экспоненты (10ⁿ)</span><input id="fThr" type="number" min="0" max="15"></div>
+  <div class="f"><span>Мнимая единица</span><select id="fImag"><option>i</option><option>j</option></select></div>
+  <div class="f"><span>ORIGIN (первый индекс)</span><input id="fOrg" type="number" min="-100" max="100"></div>
+  <div class="btns"><button data-close>Отмена</button><button class="pri" id="fOk">Применить</button></div>
+</div></div>
+<div class="dlg" id="dMat"><div class="box">
+  <h3>Матрица</h3>
+  <div class="f"><span>Строк</span><input id="mRows" type="number" min="1" max="20" value="3"></div>
+  <div class="f"><span>Столбцов</span><input id="mCols" type="number" min="1" max="20" value="3"></div>
+  <div class="btns"><button data-close>Отмена</button><button class="pri" id="mOk">Вставить</button></div>
+</div></div>
+<div class="dlg" id="dLib"><div class="box">
+  <h3>Мои листы</h3>
+  <div id="libList" class="liblist"></div>
+  <div class="btns"><button data-close>Закрыть</button></div>
+</div></div>
+<div class="dlg" id="dName"><div class="box">
+  <h3>Название листа</h3>
+  <input id="nameIn" type="text" maxlength="80" style="width:100%">
+  <div class="btns"><button data-close>Отмена</button><button class="pri" id="nameOk">Сохранить</button></div>
+</div></div>
+<div class="dlg" id="dAbout"><div class="box">
+  <h3>Матлист 0.3 — пробная версия</h3>
+  <p>Рабочий лист в духе Mathcad 15: определения :=, вывод =, функции, ранжированные переменные, матрицы, root, polyroots, lsolve, интегралы, производные, Σ и Π, rkfixed, системы уравнений, Given/Find/Minerr, Minimize/Maximize, Odesolve, графики, несколько листов, открытие и сохранение .xmcd.</p>
+  <p>Перемещение региона: удерживайте его и тяните, или «Переместить». Масштаб: щипок двумя пальцами.</p>
+  <p>Ещё нет: рукописного ввода, символики, единиц, WSP и экспорта в PDF/DOCX — это следующие этапы плана.</p>
+  <div class="btns"><button class="pri" data-close>Понятно</button></div>
+</div></div>
+<div class="toast" id="toast"></div>
+<!--MATHLIVE_JS-->
+<script>/*ENGINE_JS*/</script>
+<script>/*XTPL_JS*/</script>
+<script>/*XMCD_JS*/</script>
+<script>/*PLOT_JS*/</script>
+<script>/*TEST_JS*/</script>
+<script>/*APP_JS*/</script>
+</body>
+</html>

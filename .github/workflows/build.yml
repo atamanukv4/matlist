@@ -1,0 +1,68 @@
+# Сборка APK Матлиста: веб-ядро (node build.js) → assets Android → APK, подписанный тестовым ключом → релиз на GitHub.
+name: Сборка APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Веб-ядро и тесты
+        run: |
+          npm ci
+          node build.js
+          node test/engine.test.js
+          node test/solvers.test.js
+          node test/roundtrip.test.js
+
+      - name: Ресурсы страницы → assets
+        run: |
+          rm -rf android/app/src/main/assets
+          mkdir -p android/app/src/main/assets
+          cp -r dist/apk-assets/. android/app/src/main/assets/
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Сборка APK
+        run: gradle -p android assembleRelease --no-daemon
+
+      - name: Имя файла
+        run: |
+          mkdir -p out
+          cp android/app/build/outputs/apk/release/app-release.apk out/Matlist-0.3.${{ github.run_number }}.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Matlist-0.3.${{ github.run_number }}
+          path: out/*.apk
+
+      - name: Релиз
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v0.3.${{ github.run_number }}
+          name: Матлист 0.3.${{ github.run_number }}
+          body: |
+            Пробная сборка Матлиста для Android (APK подписан тестовым ключом).
+            Установка: скачать APK на телефон → открыть → разрешить установку из этого источника.
+          files: out/*.apk
+          make_latest: true

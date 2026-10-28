@@ -1,0 +1,19 @@
+{
+  "name": "matlist",
+  "version": "0.3.0",
+  "description": "Матлист — рабочий лист в духе Mathcad 15 для телефона",
+  "scripts": {
+    "build": "node build.js",
+    "test": "node test/engine.test.js && node test/solvers.test.js && node test/roundtrip.test.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "mathlive": "0.111.1"
+  },
+  "devDependencies": {
+    "@xmldom/xmldom": "^0.9.12"
+  },
+  "private": true
+}
