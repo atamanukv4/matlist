@@ -29,12 +29,18 @@ function recompute() {
     if (r.kind === 'math') {
       r.res = null; r.err = null; r.tbl = false; r.role = null; r.before = { env: R.env, given: R.given ? R.given.slice() : null };
       if (!r.latex || !r.latex.trim()) continue;
+      let st = null;
       try {
-        const st = E.parse(r.latex); r.stmt = st.type;
+        st = E.parse(r.latex); r.stmt = st.type;
         const out = R.step(st);
         if (out.given) r.role = 'given'; else if (out.constraint) r.role = 'cons';
+        else if (st.sym && out.value instanceof E.Fn) r.res = E.toTex(st.rhs); // f(x) := … → — показываем выражение
         else if (out.value !== undefined && out.value !== null) { r.res = E.fmtValue(out.value, S.fmt); r.tbl = out.value instanceof E.Rng; }
-      } catch (e) { r.err = e.message || String(e); }
+      } catch (e) {
+        // «→» над неопределёнными именами: как символьный вывод Mathcad — выражение остаётся как есть
+        if (st && st.sym && st.type === 'eval' && /не определена/.test(e.message || '')) r.res = E.toTex(st.expr);
+        else r.err = e.message || String(e);
+      }
     } else if (r.kind === 'plot') { r.env = R.env; }
   }
 }
@@ -51,6 +57,7 @@ function render() {
   const cr = h('div', 'cross'); cr.style.left = S.cursor.x + 'px'; cr.style.top = S.cursor.y + 'px'; page.appendChild(cr);
   page.style.width = Math.max(S.pageW, maxX + 40) + 'px';
   page.style.height = Math.max(wrap.clientHeight / S.zoom - 24, maxY + 400, S.cursor.y + 300) + 'px';
+  page._minH = maxY + 400;
   page.style.zoom = S.zoom;
   if (active) { const el = page.querySelector('[data-id="' + active.r.id + '"]'); if (el) attachEditor(el, active.r); }
   if (plotEdit) markSel(plotEdit.r);
@@ -59,6 +66,7 @@ function render() {
 function markSel(r) { const el = page.querySelector('[data-id="' + r.id + '"]'); if (el) el.classList.add('sel'); }
 function regionEl(r) {
   const el = h('div', 'rg ' + r.kind); el.dataset.id = r.id; el.style.left = r.x + 'px'; el.style.top = r.y + 'px';
+  if (r.hl) { el.style.background = r.hl; el.classList.add('hl'); }
   if (r.kind === 'math') {
     if (r.err) el.classList.add('err');
     if (r.role) el.classList.add(r.role);
@@ -148,8 +156,8 @@ function activate(r, tap) {
   if (active && active.r === r) return;
   commit(false);
   closePlot();
-  if (r.kind === 'math') { active = { r, tap }; S.cursor = { x: r.x, y: r.y }; render(); }
-  else if (r.kind === 'text') editText(r);
+  if (r.kind === 'math') { setKbd(true); active = { r, tap }; S.cursor = { x: r.x, y: r.y }; render(); }
+  else if (r.kind === 'text') editText(r, tap);
   else if (r.kind === 'plot') openPlot(r);
   else if (r.kind === 'note' || r.kind === 'image') { const el = page.querySelector('[data-id="' + r.id + '"]'); el.classList.add('sel'); showBar(el, r); }
 }
@@ -170,19 +178,26 @@ function createAt(kind, extra) {
 function ensureTarget() {
   if (targetMf && document.body.contains(targetMf)) return targetMf;
   if (plotEdit) { targetMf = $('#py'); return targetMf; }
-  commit(false);
+  commit(false); setKbd(true);
   const r = createAt('math', { latex: '' }); active = { r }; render();
   return active.mf;
 }
 
 // ───────── текст ─────────
-function editText(r) {
+let textEl = null; // текстовый регион в режиме правки (системная клавиатура)
+function editText(r, tap) {
   const el = page.querySelector('[data-id="' + r.id + '"]'); if (!el) return;
-  el.contentEditable = 'true'; el.classList.add('sel'); $('#kbd').classList.add('hide');
-  el.focus(); const sel = window.getSelection(); sel.selectAllChildren(el); sel.collapseToEnd();
+  el.contentEditable = 'true'; el.setAttribute('inputmode', 'text'); el.spellcheck = true;
+  el.classList.add('sel'); $('#kbd').classList.add('hide'); document.body.classList.add('texting');
+  textEl = el;
+  el.focus();
+  const sel = window.getSelection(); let placed = false;
+  if (tap && document.caretRangeFromPoint) { const rg = document.caretRangeFromPoint(tap.x, tap.y); if (rg && el.contains(rg.startContainer)) { sel.removeAllRanges(); sel.addRange(rg); placed = true; } }
+  if (!placed) { sel.selectAllChildren(el); sel.collapseToEnd(); }
   showBar(el, r);
   el.addEventListener('blur', () => {
-    r.text = el.innerText.replace(/\n$/, ''); el.contentEditable = 'false'; $('#kbd').classList.remove('hide');
+    r.text = el.innerText.replace(/\n$/, ''); el.contentEditable = 'false'; $('#kbd').classList.remove('hide'); document.body.classList.remove('texting');
+    textEl = null;
     if (!r.text.trim()) S.regions = S.regions.filter(x => x !== r);
     setTimeout(() => { hideBar(); render(); }, 0);
   }, { once: true });
@@ -195,18 +210,39 @@ function showBar(el, r) {
   const b = (t, cls, fn) => { const x = h('button', cls, t); x.addEventListener('pointerdown', ev => { ev.preventDefault(); ev.stopPropagation(); fn(); }); bar.appendChild(x); };
   b('Переместить', '', () => { moveMode = r; hideBar(); if (active) commitKeep(); toast('Коснитесь места на листе, куда перенести'); });
   b('Копия', '', () => { if (active) commitKeep(); const c = JSON.parse(JSON.stringify(cleanRegion(r))); c.id = S.nextId++; c.y = r.y + (el.offsetHeight || 24) + 12; S.regions.push(c); recompute(); render(); });
+  b('Копир.', '', () => { if (active) commitKeep(); clip = JSON.parse(JSON.stringify(cleanRegion(r))); hideBar(); render(); toast('Скопировано. Удерживайте палец на пустом месте → «Вставить»'); });
+  if (r.kind !== 'plot') b('Цвет', '', () => { if (active) commitKeep(); palette(r); });
   if (r.kind === 'image') {
     b('−', '', () => { r.w = Math.max(40, Math.round(r.w / 1.2)); r.h = Math.max(30, Math.round(r.h / 1.2)); render(); const e2 = page.querySelector('[data-id="' + r.id + '"]'); if (e2) { e2.classList.add('sel'); showBar(e2, r); } });
     b('+', '', () => { r.w = Math.round(r.w * 1.2); r.h = Math.round(r.h * 1.2); render(); const e2 = page.querySelector('[data-id="' + r.id + '"]'); if (e2) { e2.classList.add('sel'); showBar(e2, r); } });
   }
   if (r.kind === 'plot') b('⤢', '', () => { applyPlot(); openFull(r); });
   b('Удалить', 'del', () => { S.regions = S.regions.filter(x => x !== r); active = null; targetMf = null; closePlot(); hideBar(); recompute(); render(); });
-  const pr = page.getBoundingClientRect(), er = el.getBoundingClientRect(), wr = wrap.getBoundingClientRect();
-  bar.style.left = Math.max(4, Math.min(er.left - wr.left, wr.width - 250)) + 'px';
-  let top = er.top - wr.top - 40; if (top < 4) top = er.bottom - wr.top + 6; bar.style.top = top + wrap.scrollTop * 0 + 'px';
+  bar.classList.remove('pal');
+  placeBar(el.getBoundingClientRect());
+}
+// подсветка региона (как Format → Highlight Region в Mathcad)
+const HL = [null, '#fff59d', '#c8f0c4', '#bfe3ff', '#ffd0e0', '#ffe0b2', '#e4d4f7', '#e0e0e0'];
+function palette(r) {
+  render(); const el = page.querySelector('[data-id="' + r.id + '"]'); if (!el) return;
+  el.classList.add('sel'); bar.innerHTML = ''; bar.style.display = 'flex'; bar.classList.add('pal');
+  for (const c of HL) {
+    const x = h('button', 'sw' + (c === (r.hl || null) ? ' on' : '')); x.title = c ? 'подсветить' : 'без подсветки';
+    if (c) x.style.background = c; else x.textContent = '✕';
+    x.addEventListener('pointerdown', ev => { ev.preventDefault(); ev.stopPropagation(); if (c) r.hl = c; else delete r.hl; bar.classList.remove('pal'); hideBar(); render(); });
+    bar.appendChild(x);
+  }
+  placeBar(el.getBoundingClientRect());
+}
+function placeBar(er) {
+  const wr = wrap.getBoundingClientRect();
+  bar.style.left = Math.max(4, Math.min(er.left - wr.left, wr.width - Math.max(250, bar.offsetWidth) - 4)) + 'px';
+  let top = er.top - wr.top - 40; if (top < 4) top = er.bottom - wr.top + 6;
+  bar.style.left = (parseFloat(bar.style.left) + wrap.scrollLeft) + 'px'; bar.style.top = (top + wrap.scrollTop) + 'px';
 }
 function commitKeep() { if (!active) return; const r = active.r; if (active.mf) r.latex = active.mf.getValue('latex').trim(); active = null; targetMf = null; recompute(); }
-function hideBar() { bar.style.display = 'none'; }
+function hideBar() { bar.style.display = 'none'; bar.classList.remove('pal'); }
+let clip = null; // скопированный регион
 
 // ───────── редактор графика ─────────
 const pp = $('#plotpanel');
@@ -224,7 +260,7 @@ function setPtab(t) {
   if (t === 'bg') fillBg();
 }
 function openPlot(r) {
-  commit(false); plotEdit = { r };
+  commit(false); plotEdit = { r }; setKbd(true);
   pp.classList.add('on'); render(); markSel(r);
   const py = $('#py'), px = $('#px'); py.value = r.ys || ''; px.value = r.xs || '';
   const v = x => (x === undefined || x === null || !isFinite(x)) ? '' : x;
@@ -362,6 +398,8 @@ tool('#kImg', () => { imgTarget = 'region'; $('#imgfile').click(); });
 const T = (l, t, cls) => ({ l, t, cls }); // подпись, вставляемый LaTeX
 const F = (name, std, cls) => ({ l: name, t: (std ? '\\' + name : '\\operatorname{' + name + '}') + '\\left(#0\\right)', cls: 'fn ' + (cls || '') });
 const A = (l, a, cls) => ({ l, a, cls }); // действие
+// функция WSP: подпись без префикса, аргументы — пустые места
+const W = (name, n) => ({ l: name.replace(/^wsp/, '').replace(/^iap/, 'iap·').replace(/EXPANSIONPTPEFF/, 'EXP'), t: '\\operatorname{' + name + '}\\left(' + ['#0'].concat(Array(n - 1).fill('#?')).join(',') + '\\right)', cls: 'fn sm wsp' });
 const TABS = {
   '123': [
     T('7', '7'), T('8', '8'), T('9', '9'), T('a/b', '\\frac{#0}{#?}', 'op'), T('(', '\\left(#0\\right)', 'op'), T('√', '\\sqrt{#0}', 'op'), T('x²', '#@^{2}', 'op'), T('xⁿ', '#@^{#?}', 'op'),
@@ -378,7 +416,7 @@ const TABS = {
   '∫Σ': [
     T('∫ₐᵇ', '\\int_{#?}^{#?}#0\\,\\mathrm{d}#?', 'op'), T('d/dx', '\\frac{\\mathrm{d}}{\\mathrm{d}#?}#0', 'op sm'), T('dⁿ/dxⁿ', '\\frac{\\mathrm{d}^{#?}}{\\mathrm{d}#?^{#?}}#0', 'op sm'), T('Σₖ₌ₐᵇ', '\\sum_{#?=#?}^{#?}#0', 'op sm'), T('Σᵢ', '\\sum_{#?}#0', 'op sm'), T('Πₖ₌ₐᵇ', '\\prod_{#?=#?}^{#?}#0', 'op sm'), T('Πᵢ', '\\prod_{#?}#0', 'op sm'), T('{ сист.', '\\begin{cases}#?\\\\#?\\end{cases}', 'op sm'),
     T('<', '<', 'op'), T('>', '>', 'op'), T('≤', '\\le ', 'op'), T('≥', '\\ge ', 'op'), T('≠', '\\ne ', 'op'), T('=ᵇ', '=', 'op sm'), T('∧', '\\land ', 'op'), T('∨', '\\lor ', 'op'),
-    T('¬', '\\neg ', 'op'), T(':=', '\\coloneq ', 'op'), T('≡', '\\equiv ', 'op'), T('a..b', '..', 'op sm'), T('a,b..c', ',#?..#?', 'op sm'), T('Φ', '\\Phi\\left(#0\\right)', 'op'), T('°', '\\degree ', 'op'), A('+ ур.', 'addRowAfter', 'op sm'),
+    T('¬', '\\neg ', 'op'), T(':=', '\\coloneq ', 'op'), T('≡', '\\equiv ', 'op'), T('a..b', '..', 'op sm'), T('a,b..c', ',#?..#?', 'op sm'), A('→', 'arrowEval', 'op'), T('°', '\\degree ', 'op'), A('+ ур.', 'addRowAfter', 'op sm'),
     T('Given', '\\operatorname{Given}', 'fn sm'), T('Find', '\\operatorname{Find}\\left(#0\\right)', 'fn'), T('Minerr', '\\operatorname{Minerr}\\left(#0\\right)', 'fn sm'), T('Minimize', '\\operatorname{Minimize}\\left(#0,#?\\right)', 'fn sm'),
     T('Maximize', '\\operatorname{Maximize}\\left(#0,#?\\right)', 'fn sm'), T('Odesolve', '\\operatorname{Odesolve}\\left(#0,#?\\right)', 'fn sm'), T("y′", "'", 'op'), T('ORIGIN', '\\mathrm{ORIGIN}', 'fn sm'),
   ],
@@ -387,6 +425,12 @@ const TABS = {
     T('Mᵀ', '#@^{T}', 'op'), T('M⁻¹', '#@^{-1}', 'op'), T('|M|', '\\left|#0\\right|', 'op'), T('M⟨j⟩', '#@^{\\langle #?\\rangle}', 'op sm'), T('xᵢ', '#@_{#?}', 'op'), T('xᵢ,ⱼ', '#@_{#?,#?}', 'op sm'), A('−стр', 'removeRow', 'op sm'), A('−стлб', 'removeColumn', 'op sm'),
     F('length'), F('rows'), F('cols'), F('identity'), { l: 'augment', t: '\\operatorname{augment}\\left(#0,#?\\right)', cls: 'fn sm' }, { l: 'stack', t: '\\operatorname{stack}\\left(#0,#?\\right)', cls: 'fn' }, F('sort'), F('eigenvals', 0, 'sm'),
     { l: 'linterp', t: '\\operatorname{linterp}\\left(#0,#?,#?\\right)', cls: 'fn sm' }, F('cspline', 0, 'sm'), { l: 'interp', t: '\\operatorname{interp}\\left(#0,#?,#?,#?\\right)', cls: 'fn' }, F('reverse', 0, 'sm'), F('last'), F('tr'), F('rank'), F('diag'),
+  ],
+  'WSP': [
+    W('wspHPT', 2), W('wspSPT', 2), W('wspVPT', 2), W('wspTPH', 2), W('wspTPS', 2), W('wspHPS', 2), W('wspSPH', 2), W('wspPHS', 2),
+    W('wspTSP', 1), W('wspPST', 1), W('wspHSWT', 1), W('wspHSST', 1), W('wspSSWT', 1), W('wspSSST', 1), W('wspVSWT', 1), W('wspVSST', 1),
+    W('wspXPH', 2), W('wspHPTX', 3), W('wspCPPT', 2), W('wspKPT', 2), W('wspDYNVISPT', 2), W('wspTHERMCONDPT', 2), W('wspHEXPANSIONPTPEFF', 4), W('wspTHS', 2),
+    W('wspgHGST', 2), W('wspgSGST', 2), W('wspgCPGST', 2), W('wspgTGSH', 2), W('iapHPT', 2), W('iapTPH', 2), W('iapSPT', 2), { l: '"…"', t: '\\text{"#0"}', cls: 'op sm' },
   ],
   'αβ': 'α β γ δ ε ζ η θ ϑ λ μ ν ξ π ρ σ τ φ χ ψ ω Γ Δ Θ Λ Σ Φ Ψ Ω ′'.split(' '),
   'abc': 'q w e r t y u i o p a s d f g h j k l ⇧ z x c v b n m ′ ⌫ ⇧'.split(' '),
@@ -416,6 +460,7 @@ function letterKey(ch) {
 function press(key) {
   if (key.a === 'shift') { shift = !shift; buildKeys(); return; }
   if (key.a === 'matrix') { askMatrix(); return; }
+  if (key.a === 'arrowEval') { const mf = ensureTarget(); insert(mf, '\\to '); if (!plotEdit) commit(true); return; }
   const mf = ensureTarget(); if (!mf) return;
   if (key.a) { mf._typed = true; mf.executeCommand(key.a); if (active && active.mf === mf) { active.r.latex = mf.getValue('latex'); livePreview(); } return; }
   insert(mf, key.t);
@@ -461,33 +506,102 @@ tool('#kPlot', () => { commit(false); closePlot(); const r = createAt('plot', { 
 
 // ───────── касания листа: курсор, выбор, перенос, перетаскивание, масштаб щипком ─────────
 function pagePos(ev) { const r = page.getBoundingClientRect(); return { x: (ev.clientX - r.left) / S.zoom, y: (ev.clientY - r.top) / S.zoom }; }
-let pd = null;
+let pd = null, dragRaf = 0;
+const HOLD = 420;
+page.addEventListener('contextmenu', ev => ev.preventDefault()); // без системного меню и выделения текста при удержании
 page.addEventListener('pointerdown', ev => {
   if (ev.target.closest('math-field') || ev.target.closest('[contenteditable=true]') || ev.target.closest('canvas.live')) return;
+  if (ev.pointerType === 'mouse' && ev.button !== 0) return;
+  if (pd && pd.drag) return;
   const rgEl = ev.target.closest('.rg'); const r = rgEl ? S.regions.find(x => x.id == rgEl.dataset.id) : null;
-  pd = { x: ev.clientX, y: ev.clientY, r, el: rgEl, t: Date.now(), drag: false, pos: pagePos(ev) };
-  if (r) pd.timer = setTimeout(() => { if (!pd) return; pd.drag = true; pd.start = { x: r.x, y: r.y }; rgEl.classList.add('drag'); if (navigator.vibrate) navigator.vibrate(15); }, 450);
+  pd = { x: ev.clientX, y: ev.clientY, cx: ev.clientX, cy: ev.clientY, r, el: rgEl, t: Date.now(), drag: false, pos: pagePos(ev) };
+  pd.timer = setTimeout(() => {
+    if (!pd || pd.moved || pinch) return;
+    if (pd.r) startDrag(); else { const p = pd; pd = null; ctxMenu(p); }
+  }, HOLD);
 });
+// перетаскивание региона: удержание → тянуть куда угодно, у краёв лист прокручивается сам
+function startDrag() {
+  const p = pd, r = p.r;
+  if (active && active.r === r) commitKeep();
+  hideBar(); p.drag = true; p.off = { x: p.pos.x - r.x, y: p.pos.y - r.y }; p.start = { x: r.x, y: r.y };
+  p.el.classList.add('drag'); document.body.classList.add('dragging');
+  if (navigator.vibrate) try { navigator.vibrate(18); } catch (e) {}
+  const step = () => {
+    if (!pd || !pd.drag) return;
+    const wr = wrap.getBoundingClientRect(), edge = 64, max = 22;
+    let vx = 0, vy = 0;
+    if (pd.cy < wr.top + edge) vy = -max * Math.min(1, (wr.top + edge - pd.cy) / edge);
+    else if (pd.cy > wr.bottom - edge) vy = max * Math.min(1, (pd.cy - wr.bottom + edge) / edge);
+    if (pd.cx < wr.left + edge * 0.6) vx = -max * Math.min(1, (wr.left + edge * 0.6 - pd.cx) / (edge * 0.6));
+    else if (pd.cx > wr.right - edge * 0.6) vx = max * Math.min(1, (pd.cx - wr.right + edge * 0.6) / (edge * 0.6));
+    if (vy > 0) { const need = (pd.r.y + 300) * S.zoom; if (page.offsetHeight * S.zoom < need + wrap.clientHeight) page.style.height = (need / S.zoom + wrap.clientHeight / S.zoom) + 'px'; }
+    if (vx > 0) { const needW = (pd.r.x + 400); if (page.offsetWidth < needW) page.style.width = needW + 'px'; }
+    if (vx || vy) { wrap.scrollLeft += vx; wrap.scrollTop += vy; }
+    dragTo(); dragRaf = requestAnimationFrame(step);
+  };
+  dragRaf = requestAnimationFrame(step);
+}
+function dragTo() {
+  const pr = page.getBoundingClientRect();
+  const x = (pd.cx - pr.left) / S.zoom - pd.off.x, y = (pd.cy - pr.top) / S.zoom - pd.off.y;
+  pd.r.x = Math.max(0, Math.round(x)); pd.r.y = Math.max(0, Math.round(y));
+  pd.el.style.left = pd.r.x + 'px'; pd.el.style.top = pd.r.y + 'px';
+}
+function endDrag() {
+  const p = pd; pd = null; cancelAnimationFrame(dragRaf); document.body.classList.remove('dragging');
+  p.el.classList.remove('drag');
+  const moved = Math.hypot(p.r.x - p.start.x, p.r.y - p.start.y) > 4;
+  if (!moved) { // удержание без движения — меню региона
+    p.r.x = p.start.x; p.r.y = p.start.y; render();
+    const el = page.querySelector('[data-id="' + p.r.id + '"]'); if (el) { el.classList.add('sel'); showBar(el, p.r); }
+    return;
+  }
+  recompute(); render();
+}
 page.addEventListener('pointermove', ev => {
   if (!pd) return;
-  const dx = ev.clientX - pd.x, dy = ev.clientY - pd.y;
-  if (!pd.drag && Math.hypot(dx, dy) > 8) { clearTimeout(pd.timer); pd.moved = true; }
-  if (pd.drag) { ev.preventDefault(); pd.r.x = Math.max(0, Math.round(pd.start.x + dx / S.zoom)); pd.r.y = Math.max(0, Math.round(pd.start.y + dy / S.zoom)); pd.el.style.left = pd.r.x + 'px'; pd.el.style.top = pd.r.y + 'px'; }
+  pd.cx = ev.clientX; pd.cy = ev.clientY;
+  if (pd.drag) { ev.preventDefault(); return; }
+  if (Math.hypot(ev.clientX - pd.x, ev.clientY - pd.y) > 8) { clearTimeout(pd.timer); pd.moved = true; }
 });
 page.addEventListener('pointerup', ev => {
-  if (!pd) return; clearTimeout(pd.timer); const p = pd; pd = null;
-  if (p.drag) { p.el.classList.remove('drag'); recompute(); render(); return; }
+  if (!pd) return; clearTimeout(pd.timer);
+  if (pd.drag) { pd.cx = ev.clientX; pd.cy = ev.clientY; endDrag(); return; }
+  const p = pd; pd = null;
   if (p.moved || pinch) return;
   if (moveMode) { const pos = pagePos(ev); moveMode.x = Math.round(pos.x); moveMode.y = Math.round(pos.y); moveMode = null; recompute(); render(); return; }
   if (p.r) { activate(p.r, { x: ev.clientX, y: ev.clientY }); return; }
-  commit(false); closePlot();
+  commit(false); closePlot(); hideBar();
   S.cursor = { x: Math.round(p.pos.x), y: Math.round(p.pos.y) }; render();
 });
-page.addEventListener('pointercancel', () => { if (pd) clearTimeout(pd.timer); pd = null; });
+page.addEventListener('pointercancel', () => { if (pd && pd.drag) return; if (pd) clearTimeout(pd.timer); pd = null; }); // при перетаскивании отмену от браузера не слушаем
+wrap.addEventListener('touchmove', ev => { if (pd && pd.drag && ev.touches.length === 1) { ev.preventDefault(); pd.cx = ev.touches[0].clientX; pd.cy = ev.touches[0].clientY; } }, { passive: false });
+wrap.addEventListener('touchend', ev => { if (pd && pd.drag && ev.touches.length === 0) { const t = ev.changedTouches[0]; if (t) { pd.cx = t.clientX; pd.cy = t.clientY; } endDrag(); } });
+// меню при удержании пальца на пустом месте
+function ctxMenu(p) {
+  commit(false); closePlot();
+  S.cursor = { x: Math.round(p.pos.x), y: Math.round(p.pos.y) }; render();
+  if (navigator.vibrate) try { navigator.vibrate(12); } catch (e) {}
+  bar.innerHTML = ''; bar.style.display = 'flex'; bar.classList.remove('pal');
+  const b = (t, fn, cls) => { const x = h('button', cls || '', t); x.addEventListener('pointerdown', ev => { ev.preventDefault(); ev.stopPropagation(); hideBar(); fn(); }); bar.appendChild(x); };
+  b('Формула', () => { ensureTarget(); });
+  b('Текст', () => { const r = createAt('text', { text: '' }); render(); editText(r); });
+  b('График', () => { const r = createAt('plot', { ys: '', xs: '', w: 300, h: 190 }); recompute(); openPlot(r); });
+  b('Рисунок', () => { imgTarget = 'region'; $('#imgfile').click(); });
+  if (clip) b('Вставить', () => { const c = JSON.parse(JSON.stringify(clip)); c.id = S.nextId++; c.x = S.cursor.x; c.y = S.cursor.y; S.regions.push(c); recompute(); render(); });
+  b('+ строка', () => shiftBelow(S.cursor.y, 40));
+  b('− строка', () => { const y = S.cursor.y; if (S.regions.some(r => r.y >= y && r.y < y + 40)) { toast('В этой полосе есть регионы — сначала уберите их'); return; } shiftBelow(y, -40); });
+  placeBar({ left: p.x, right: p.x, top: p.y, bottom: p.y + 4 });
+}
+function shiftBelow(y, dy) { for (const r of S.regions) if (r.y >= y) r.y = Math.max(0, r.y + dy); recompute(); render(); }
 let pinch = null;
 wrap.addEventListener('touchstart', ev => { if (ev.touches.length === 2) { const [a, b] = ev.touches; pinch = { d: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY), z: S.zoom }; if (pd) { clearTimeout(pd.timer); pd = null; } } }, { passive: true });
 wrap.addEventListener('touchmove', ev => { if (pinch && ev.touches.length === 2) { ev.preventDefault(); const [a, b] = ev.touches; const d = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY); setZoom(pinch.z * d / pinch.d, true); } }, { passive: false });
 wrap.addEventListener('touchend', ev => { if (pinch && ev.touches.length < 2) { setTimeout(() => { pinch = null; }, 50); render(); } });
+function setKbd(on) { if (document.body.classList.contains('kbd-off') === !on) return; document.body.classList.toggle('kbd-off', !on); }
+tool('#kHide', () => { commit(false); setKbd(false); });
+$('#kShow').addEventListener('click', () => setKbd(true));
 function setZoom(z, light) { S.zoom = Math.max(0.35, Math.min(2.5, z)); page.style.zoom = S.zoom; if (!light) render(); }
 function fitZoom() { let maxX = S.pageW; for (const r of S.regions) maxX = Math.max(maxX, r.x + (r.kind === 'plot' ? r.w : 160)); setZoom((wrap.clientWidth - 24) / (maxX + 20)); }
 
@@ -624,6 +738,67 @@ function saveXmcd() {
   toast((ok ? 'Сохранено: ' + name : 'Не удалось сохранить файл') + (out.notes.length ? '. ' + out.notes.join('; ') : ''));
   return out;
 }
+// ───────── экспорт: Word (.docx) и PDF ─────────
+const XP = window.MatExport;
+const b64ToBytes = b64 => { const s = atob(b64); const u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i); return u; };
+function bytesToB64(u) { let s = ''; for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000)); return btoa(s); }
+function plotPng(r, scale) { // график → PNG
+  const k = scale || 2, cv = document.createElement('canvas'); cv.width = r.w * k; cv.height = r.h * k;
+  try { MP.draw(cv, r, { dpr: k }); } catch (e) { return null; }
+  return { url: cv.toDataURL('image/png'), w: r.w, h: r.h };
+}
+function imagePng(r) {
+  if (/^data:image\/png;base64,/.test(r.src)) return { url: r.src, w: r.w, h: r.h };
+  const im = page.querySelector('[data-id="' + r.id + '"] img'); if (!im || !im.complete || !im.naturalWidth) return null;
+  const cv = document.createElement('canvas'); cv.width = im.naturalWidth; cv.height = im.naturalHeight; cv.getContext('2d').drawImage(im, 0, 0);
+  return { url: cv.toDataURL('image/png'), w: r.w, h: r.h };
+}
+function fileBase() { return (S.name || 'Лист').replace(/[\\/:*?"<>|]+/g, '_'); }
+function saveBinary(name, mime, bytes) {
+  if (window.MatlistAndroid && window.MatlistAndroid.saveBase64) { try { window.MatlistAndroid.saveBase64(name, mime, bytesToB64(bytes)); return; } catch (e) {} }
+  if (downloadsApi) {
+    downloadsApi.save({ filename: name, data: new Blob([bytes], { type: mime }) }).then(() => toast('Сохранено: ' + name))
+      .catch(e => toast(e && e.code === 'declined' ? 'Сохранение отменено' : 'Не удалось сохранить файл: ' + ((e && e.message) || e)));
+    return;
+  }
+  try { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([bytes], { type: mime })); a.download = name; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 3000); toast('Сохранено: ' + name); }
+  catch (e) { toast('Не удалось сохранить файл'); }
+}
+function saveDocx() {
+  commit(false); closePlot(); recompute(); render();
+  const regs = sorted().filter(r => r.kind !== 'math' || (r.latex && r.latex.trim()));
+  const bytes = XP.docx(regs, { title: S.name, png: r => { const im = r.kind === 'plot' ? plotPng(r, 2) : imagePng(r); return im ? { data: b64ToBytes(im.url.split(',')[1]), w: im.w, h: im.h } : null; } });
+  saveBinary(fileBase() + '.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', bytes);
+  return bytes;
+}
+function printSheetHtml() {
+  commit(false); closePlot(); recompute(); render();
+  const escH = t => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const regs = [];
+  for (const r of sorted()) {
+    const el = page.querySelector('[data-id="' + r.id + '"]'); const b = el ? el.getBoundingClientRect() : null;
+    const w = b ? b.width / S.zoom : 200, hh = b ? b.height / S.zoom : 24;
+    let html = '';
+    if (r.kind === 'math') { if (!r.latex) continue; html = el ? el.innerHTML : ''; }
+    else if (r.kind === 'text' || r.kind === 'note') html = '<div class="t' + (r.bold ? ' b' : '') + '" style="' + (el && el.style.width ? 'width:' + el.style.width + ';' : 'max-width:340px;') + (el && el.style.fontSize ? 'font-size:' + el.style.fontSize : '') + '">' + escH(r.text || '') + '</div>';
+    else if (r.kind === 'plot') { const im = plotPng(r, 3); if (!im) continue; html = '<img src="' + im.url + '" width="' + r.w + '" height="' + r.h + '">'; }
+    else if (r.kind === 'image') html = '<img src="' + r.src + '" width="' + r.w + '" height="' + r.h + '">';
+    regs.push({ x: r.x, y: r.y, w, h: hh, html, hl: r.hl });
+  }
+  const css = [...document.querySelectorAll('style')].filter(st => st.id !== 'appcss').map(st => st.textContent).join('\n');
+  return XP.printHtml(regs, { title: S.name, css });
+}
+function savePdf() {
+  const html = printSheetHtml(), title = fileBase();
+  if (window.MatlistAndroid && window.MatlistAndroid.printHtml) { try { window.MatlistAndroid.printHtml(html, title); toast('Выберите «Сохранить как PDF» в окне печати'); return html; } catch (e) {} }
+  const fr = document.createElement('iframe'); fr.style.cssText = 'position:fixed;right:0;bottom:0;width:1px;height:1px;border:0;opacity:0';
+  document.body.appendChild(fr);
+  fr.onload = () => { setTimeout(() => { try { fr.contentWindow.focus(); fr.contentWindow.print(); } catch (e) { toast('Печать недоступна: ' + e.message); } setTimeout(() => fr.remove(), 60000); }, 300); };
+  fr.srcdoc = html; toast('Выберите «Сохранить как PDF» в окне печати');
+  return html;
+}
+mi('#mDocx', () => saveDocx());
+mi('#mPdf', () => savePdf());
 mi('#mFmt', () => {
   $('#fDec').value = S.fmt.decimals; $('#fThr').value = S.fmt.expThreshold; $('#fImag').value = S.fmt.imagUnit || 'i'; $('#fOrg').value = S.origin || 0; $('#dFmt').classList.add('on');
 });
@@ -648,6 +823,8 @@ window.MATLIST_OPEN_TEXT = openXmcdText; // вызывается Android-обё�
 // кнопка «Назад» на Android: закрыть верхний открытый элемент; true — закрыли, false — можно выходить
 window.MATLIST_BACK = function () {
   if (full.classList.contains('on')) { $('#fullClose').click(); return true; }
+  if (textEl) { textEl.blur(); return true; }
+  if (pd && pd.drag) { endDrag(); return true; }
   const dlg = document.querySelector('.dlg.on'); if (dlg) { dlg.classList.remove('on'); return true; }
   if (menu.classList.contains('on')) { menu.classList.remove('on'); return true; }
   if (plotEdit) { closePlot(); return true; }
@@ -675,8 +852,8 @@ $('#kKbd').addEventListener('pointerdown', ev => { ev.preventDefault(); nativeKb
 // ───────── запуск ─────────
 buildKeys();
 if (!load()) setSheet('Тестовый лист', window.MATLIST_TEST(), 380);
-window.addEventListener('resize', () => render());
+window.addEventListener('resize', () => { page.style.height = Math.max(wrap.clientHeight / S.zoom - 24, page._minH || 0, S.cursor.y + 300) + 'px'; });
 $('#loading').remove();
 if (window.MatlistAndroid && window.MatlistAndroid.ready) { try { window.MatlistAndroid.ready(); } catch (e) {} }
-window.MATLIST_DEBUG = { S, saveXmcd, zipStore, lib: () => lib, sheetUndo, sheetRedo, openLib, recompute, render, setSheet, commit, ensureTarget, insert, press: (tab, label) => { const k = (TABS[tab] || []).find(x => x.l === label); if (k) press(k); }, activate };
+window.MATLIST_DEBUG = { S, saveXmcd, saveDocx, printSheetHtml, zipStore, setKbd, shiftBelow, clip: () => clip, lib: () => lib, sheetUndo, sheetRedo, openLib, recompute, render, setSheet, commit, ensureTarget, insert, press: (tab, label) => { const k = (TABS[tab] || []).find(x => x.l === label); if (k) press(k); }, activate };
 })();

@@ -6,7 +6,7 @@ window.MATLIST_TEST = function () {
   const M = (latex, dy, x) => { R.push({ kind: 'math', x: x || 12, y, latex }); if (dy !== 0) y += dy || 32; };
   const P = (ys, xs, extra, dy) => { R.push(Object.assign({ kind: 'plot', x: 12, y, ys, xs, w: 340, h: 200 }, extra || {})); y += dy || 240; };
 
-  T('Матлист 0.3 — тестовый лист. Коснитесь формулы, чтобы изменить её; коснитесь пустого места, чтобы поставить курсор +.', 46);
+  T('Матлист 0.4 — тестовый лист. Коснитесь формулы, чтобы изменить её; коснитесь пустого места, чтобы поставить курсор +. Удерживайте регион и тяните, чтобы перенести; удержание на пустом месте — меню.', 66);
   H('1. Переменные и формулы');
   M('a\\coloneq 2.5', 0); M('b\\coloneq 4', 32, 150);
   M('c\\coloneq a\\cdot b+\\sqrt{b}=');
@@ -79,5 +79,18 @@ window.MATLIST_TEST = function () {
   M('\\begin{cases}x_{\\mathrm{s}}^{3}+z_{\\mathrm{s}}=y_{\\mathrm{s}}\\\\x_{\\mathrm{s}}^{y_{\\mathrm{s}}}+z_{\\mathrm{s}}=1\\\\x_{\\mathrm{s}}^{x_{\\mathrm{s}}}=11\\end{cases}=', 92);
   M('\\begin{bmatrix}p\\\\q\\end{bmatrix}\\coloneq\\begin{cases}p+q=10\\\\p-q=2\\end{cases}', 60);
   M('p\\cdot q=', 40);
+  H('15. Вода и пар (WaterSteamPro, IAPWS-IF97)');
+  T('Функции WSP встроены: аргументы и результат в СИ (Па, К, Дж/кг). Вкладка WSP на клавиатуре.', 20);
+  M('P_{\\mathrm{0}}\\coloneq 13', 0); M('t_{\\mathrm{0}}\\coloneq 540', 32, 150);
+  M('h_{\\mathrm{0}}\\coloneq\\frac{\\operatorname{wspHPT}\\left(P_{\\mathrm{0}}\\cdot10^{6},t_{\\mathrm{0}}+273.15\\right)}{1000}=', 48);
+  M('s_{\\mathrm{0}}\\coloneq\\frac{\\operatorname{wspSPT}\\left(P_{\\mathrm{0}}\\cdot10^{6},t_{\\mathrm{0}}+273.15\\right)}{1000}=', 48);
+  M('h_{\\mathrm{к}}\\coloneq\\frac{\\operatorname{wspHPS}\\left(4\\cdot10^{3},s_{\\mathrm{0}}\\cdot10^{3}\\right)}{1000}=', 48);
+  M('x_{\\mathrm{к}}\\coloneq\\operatorname{wspXPH}\\left(4\\cdot10^{3},h_{\\mathrm{к}}\\cdot10^{3}\\right)=', 40);
+  M('t_{\\mathrm{н}}\\coloneq\\operatorname{wspTSP}\\left(10^{6}\\right)-273.15=', 40);
+  M('\\operatorname{wspgHGST}\\left(\\text{"N2:0.79;O2:0.21"},500\\right)=', 40);
+  H('16. Вычисление «→» (как в Mathcad)');
+  T('Стрелка (клавиша «→» во вкладке ∫Σ) показывает значение, и переменная наследуется ниже по листу.', 20);
+  R.push({ kind: 'math', x: 12, y, latex: 'k_{\\mathrm{1}}\\coloneq\\frac{3}{4}\\cdot 8\\to', hl: '#fff59d' }); y += 34;
+  M('k_{\\mathrm{1}}+1=', 40);
   return R;
 };

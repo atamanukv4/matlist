@@ -148,3 +148,22 @@ math-field::part(virtual-keyboard-toggle),math-field::part(menu-toggle){display:
 .libname small{font-size:12px;color:var(--muted)}
 .libdel{border:0;background:transparent;color:var(--err);padding:8px 10px;border-radius:8px;cursor:pointer;font-size:13px}
 .top .title{cursor:pointer}
+
+/* клавиатура свёрнута: лист на весь экран */
+body.kbd-off .kbd{display:none}
+.kshow{position:fixed;right:14px;bottom:calc(14px + env(safe-area-inset-bottom));width:54px;height:54px;border-radius:27px;border:0;background:var(--accent);color:#fff;font-size:24px;box-shadow:0 4px 14px rgba(16,24,40,.28);display:none;place-items:center;z-index:40;cursor:pointer}
+body.kbd-off .kshow{display:grid}
+body.texting .kshow,body.dragging .kshow{display:none}
+/* удержание пальцем не выделяет текст и не вызывает системное меню */
+.page{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+.page [contenteditable=true]{-webkit-user-select:text;user-select:text;-webkit-touch-callout:default}
+body.dragging .sheetwrap{touch-action:none}
+.rg.drag{opacity:.85;box-shadow:0 8px 22px rgba(16,24,40,.25);transform:scale(1.03);transition:transform .08s}
+.rg.hl{border-radius:3px}
+.rg.hl.sel{border-color:var(--accent)}
+/* палитра подсветки */
+.rbar.pal{gap:6px;padding:6px}
+.rbar.pal .sw{width:30px;height:30px;padding:0;border-radius:50%;border:1px solid #c9ced6;font-size:13px;color:var(--muted)}
+.rbar.pal .sw.on{outline:2px solid var(--accent);outline-offset:1px}
+.rbar{flex-wrap:wrap;max-width:calc(100vw - 16px)}
+.keys button.wsp{font-size:11px;letter-spacing:-.2px}

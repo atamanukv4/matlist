@@ -49,18 +49,18 @@ jobs:
       - name: Имя файла
         run: |
           mkdir -p out
-          cp android/app/build/outputs/apk/release/app-release.apk out/Matlist-0.3.${{ github.run_number }}.apk
+          cp android/app/build/outputs/apk/release/app-release.apk out/Matlist-0.4.${{ github.run_number }}.apk
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Matlist-0.3.${{ github.run_number }}
+          name: Matlist-0.4.${{ github.run_number }}
           path: out/*.apk
 
       - name: Релиз
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v0.3.${{ github.run_number }}
-          name: Матлист 0.3.${{ github.run_number }}
+          tag_name: v0.4.${{ github.run_number }}
+          name: Матлист 0.4.${{ github.run_number }}
           body: |
             Пробная сборка Матлиста для Android (APK подписан тестовым ключом).
             Установка: скачать APK на телефон → открыть → разрешить установку из этого источника.

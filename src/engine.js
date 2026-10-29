@@ -176,15 +176,17 @@ class Parser {
       if (x.k === 'ch' && (x.v === '}' || x.v === ')' || x.v === ']')) d--;
       if (d === 0 && x.k === 'op' && (x.v === ':=' || x.v === '≡')) { defAt = i; defOp = x.v; break; }
     }
-    let showAfter = false;
+    let showAfter = false, sym = false;
     const last = this.t[this.t.length - 1];
     if (last && last.k === 'ch' && last.v === '=') { this.t.pop(); showAfter = true; }
+    else if (last && last.k === 'op' && last.v === '→') { this.t.pop(); showAfter = true; sym = true; } // «→» Mathcad: значение показывается и наследуется
     if (defAt >= 0) {
       const lp = this.sub(this.t.slice(0, defAt)); const lhs = lp.parseExpr(); if (!lp.eof()) throw err('Неверная левая часть определения');
       const rp = this.sub(this.t.slice(defAt + 1)); const rhs = rp.parseRangeOrExpr(); if (!rp.eof()) throw err('Не удалось разобрать: ' + rp.restText());
-      return { type: 'define', global: defOp === '≡', lhs, rhs, show: showAfter };
+      const st = { type: 'define', global: defOp === '≡', lhs, rhs, show: showAfter }; if (sym) st.sym = true; return st;
     }
     const e = this.parseExpr(); if (!this.eof()) throw err('Не удалось разобрать: ' + this.restText());
+    if (sym) return { type: 'eval', expr: e, sym: true };
     return showAfter ? { type: 'eval', expr: e } : { type: 'expr', expr: e };
   }
   restText() { return this.t.slice(this.p).map(x => x.v).join(' ').slice(0, 30); }
@@ -329,7 +331,9 @@ class Parser {
         return { type: 'sqrt', e: this.groupExpr() };
       }
       if (c === 'mathrm' || c === 'text' || c === 'mathit' || c === 'operatorname' || c === 'mathbf' || c === 'mathsf' || c === 'textrm' || c === 'mathnormal') {
-        const toks = this.groupTokens(); const name = this.groupRaw(toks).replace(/\s/g, '');
+        const toks = this.groupTokens(); const raw = this.groupRaw(toks); const name = raw.replace(/\s/g, '');
+        if ((c === 'text' || c === 'textrm') && /^["“«”]/.test(raw.trim())) return { type: 'str', v: raw.trim().replace(/^["“«”]|["”»“]$/g, '') };
+        if ((c === 'text' || c === 'textrm') && /[:;%{}]/.test(raw)) return { type: 'str', v: raw.trim() };
         if (!name) throw err('Пустое имя');
         if (name === 'd' && this.peek() && (this.peek().k === 'ch')) { /* «d x» вне интеграла */ }
         return { type: 'id', name: this.readIdent(name) };
@@ -848,7 +852,7 @@ function odesolve(args, ctx) {
   if (args.length < 2 || args[0].type !== 'id') throw err('Odesolve(t, конец [, число шагов])');
   const tv = args[0].name, tEnd = toNum(ctx.ev(args[1]), 'Конец интервала'); const steps = args[2] ? toInt(ctx.ev(args[2])) : 1000;
   // неизвестная функция и порядки производных: y(t), y'(t), y''(t) или d/dt y(t)
-  const calls = []; const known = n => { const v = ctx.env.get(n); return v instanceof Fn || B[n]; };
+  const calls = []; const known = n => { const v = ctx.env.get(n); return v instanceof Fn || B[n] || extFn(n); };
   const walk = (n, cb) => { if (!n || typeof n !== 'object') return; if (Array.isArray(n)) return n.forEach(x => walk(x, cb)); cb(n); for (const k in n) if (k !== 'type' && typeof n[k] === 'object') walk(n[k], cb); };
   let fname = null;
   for (const g0 of given) walk(g0, n => { if (n.type === 'call') { const { base } = primeSplit(n.f); if (!known(base) && !known(n.f)) fname = fname || base; } if (n.type === 'deriv' && n.e && n.e.type === 'call' && !known(n.e.f)) fname = fname || n.e.f; });
@@ -1087,8 +1091,28 @@ function evalCall(n, env, ctx) {
     const args = n.args.map(a => evalArg(a, env, ctx));
     return b.fn(args, Object.assign(Object.create(ctx), { env }));
   }
+  const ext = extFn(n.f);
+  if (ext) return callExt(n, ext, n.args.map(a => evalNode(a, env, ctx)));
   if (n.f in CONSTS && n.args.length === 1) return mulAny(CONSTS[n.f], evalNode(n.args[0], env, ctx));
-  throw err('Функция «' + prettyName(n.f) + '» не определена' + (/^wsp/i.test(n.f) ? ' (функции WSP появятся в v2)' : ''));
+  throw err('Функция «' + prettyName(n.f) + '» не определена', n);
+}
+// внешние библиотеки функций: свойства воды и пара (WSP, iap97) и газов — src/wsp.js
+let WSPLIB = null;
+function wspLib() {
+  if (WSPLIB) return WSPLIB;
+  if (typeof module !== 'undefined' && module.exports) { try { WSPLIB = require('./wsp.js'); } catch (e) { WSPLIB = null; } }
+  else WSPLIB = root.MatWSP || null;
+  return WSPLIB;
+}
+function extFn(name) { if (!/^(wsp|iap)/.test(name)) return null; const L = wspLib(); return L && L.F[name] ? L : null; }
+function callExt(n, L, vals) {
+  const args = vals.map(v => v instanceof Str ? v.s : (v instanceof Mat && v.r * v.c === 1) ? toNum(v.a[0]) : toNum(v));
+  let r;
+  try { r = L.call(n.f, args); } catch (e) { throw err(e.message, n); }
+  if (Array.isArray(r)) return new Mat(r.length, 1, r.slice());
+  if (typeof r === 'string') return new Str(r);
+  if (typeof r !== 'number' || !isFinite(r)) throw err('WSP: результат не определён', n);
+  return r;
 }
 function evalArg(a, env, ctx) {
   if (a.type === 'id') { const v = env.get(a.name); if (v instanceof Fn) return v; if (v === undefined && B[a.name] && !(a.name in CONSTS)) { const bb = B[a.name]; return new Fn(['x'], { type: 'call', f: a.name, args: [{ type: 'id', name: 'x' }] }, new Env(), a.name); } }
@@ -1234,7 +1258,7 @@ function solveSystem(n, env, ctx, wanted) {
 // ───────────────────────── Прогон листа (с блоками Given) ─────────────────────────
 function callsAny(n, set) { let hit = false; (function w(q) { if (hit || !q || typeof q !== 'object') return; if (Array.isArray(q)) return q.forEach(w); if (q.type === 'call' && set.has(q.f)) { hit = true; return; } for (const k in q) if (k !== 'type' && typeof q[k] === 'object') w(q[k]); })(n); return hit; }
 class SheetRunner {
-  constructor(origin) { this.env = new Env(); this.env.set('ORIGIN', origin || 0); this.given = null; }
+  constructor(origin) { this.env = new Env(); this.env.set('ORIGIN', origin || 0); this.given = null; const L = wspLib(); if (L && L.reset) L.reset(); }
   // st — разобранный регион; возвращает { value?, given?, constraint? } и запоминает окружение до региона
   step(st) {
     const before = { env: this.env, given: this.given ? this.given.slice() : null };
@@ -1359,8 +1383,8 @@ function tex(n, p) {
   return '?';
 }
 function stmtToTex(st) {
-  if (st.type === 'define') return tex(st.lhs, 0) + (st.global ? '\\equiv ' : '\\coloneq ') + tex(st.rhs, 0) + (st.show ? '=' : '');
-  if (st.type === 'eval') return tex(st.expr, 0) + '=';
+  if (st.type === 'define') return tex(st.lhs, 0) + (st.global ? '\\equiv ' : '\\coloneq ') + tex(st.rhs, 0) + (st.sym ? '\\to ' : st.show ? '=' : '');
+  if (st.type === 'eval') return tex(st.expr, 0) + (st.sym ? '\\to ' : '=');
   if (st.type === 'expr') return tex(st.expr, 0);
   return '';
 }

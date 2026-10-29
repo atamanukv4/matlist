@@ -6,13 +6,13 @@
 <meta name="theme-color" content="#ffffff">
 <title>Матлист</title>
 <!--MATHLIVE_CSS-->
-<style>/*APP_CSS*/</style>
+<style id="appcss">/*APP_CSS*/</style>
 </head>
 <body>
 <div class="loading" id="loading">Загрузка Матлиста…</div>
 <header class="top">
   <button class="ib" id="bMenu" aria-label="Меню"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
-  <div class="title" id="title" title="Переименовать">Тестовый лист<small>Матлист · пробная версия 0.3</small></div>
+  <div class="title" id="title" title="Переименовать">Тестовый лист<small>Матлист · пробная версия 0.4</small></div>
   <button class="ib" id="bZoomOut" aria-label="Уменьшить">−</button>
   <button class="ib" id="bZoomIn" aria-label="Увеличить">+</button>
   <button class="ib" id="bRecalc" aria-label="Пересчитать"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg></button>
@@ -63,7 +63,7 @@
 </section>
 <footer class="kbd" id="kbd">
   <div class="tools nav">
-    <button id="kUndo" title="Отменить">↶</button><button id="kRedo" title="Повторить">↷</button>
+    <button id="kHide" title="Скрыть клавиатуру — лист на весь экран">▾</button><button id="kUndo" title="Отменить">↶</button><button id="kRedo" title="Повторить">↷</button>
     <button id="kHome" title="В начало">⇤</button><button id="kLeft" title="Влево">←</button>
     <button id="kUp" title="Вверх (в числитель, в степень)">↑</button><button id="kDown" title="Вниз (в знаменатель, в индекс)">↓</button>
     <button id="kRight" title="Вправо">→</button><button id="kEnd" title="В конец">⇥</button>
@@ -78,12 +78,15 @@
   <div class="tabs" id="tabs"></div>
   <div class="keys" id="keys"></div>
 </footer>
+<button class="kshow" id="kShow" aria-label="Показать клавиатуру">⌨</button>
 <div class="menu" id="menu"><div class="sheet">
   <button id="mLib">Мои листы…</button>
   <button id="mNew">Новый лист</button>
   <button id="mTest">Тестовый лист функций</button>
   <button id="mOpen">Открыть .xmcd…</button>
   <button id="mSave">Сохранить как .xmcd</button>
+  <button id="mDocx">Сохранить в Word (.docx)</button>
+  <button id="mPdf">Сохранить в PDF…</button>
   <hr>
   <button id="mFmt">Формат результатов…</button>
   <button id="mFit">Масштаб: по ширине</button>
@@ -119,18 +122,21 @@
   <div class="btns"><button data-close>Отмена</button><button class="pri" id="nameOk">Сохранить</button></div>
 </div></div>
 <div class="dlg" id="dAbout"><div class="box">
-  <h3>Матлист 0.3 — пробная версия</h3>
-  <p>Рабочий лист в духе Mathcad 15: определения :=, вывод =, функции, ранжированные переменные, матрицы, root, polyroots, lsolve, интегралы, производные, Σ и Π, rkfixed, системы уравнений, Given/Find/Minerr, Minimize/Maximize, Odesolve, графики, несколько листов, открытие и сохранение .xmcd.</p>
-  <p>Перемещение региона: удерживайте его и тяните, или «Переместить». Масштаб: щипок двумя пальцами.</p>
-  <p>Ещё нет: рукописного ввода, символики, единиц, WSP и экспорта в PDF/DOCX — это следующие этапы плана.</p>
+  <h3>Матлист 0.4 — пробная версия</h3>
+  <p>Рабочий лист в духе Mathcad 15: определения :=, вывод =, функции, ранжированные переменные, матрицы, root, polyroots, lsolve, интегралы, производные, Σ и Π, rkfixed, системы уравнений, Given/Find/Minerr, Minimize/Maximize, Odesolve, вычисление «→», графики, свойства воды и пара (все функции WaterSteamPro и iap97), газы, несколько листов, .xmcd, экспорт в Word и PDF.</p>
+  <p>Перемещение: удерживайте регион и тяните — у края экрана лист прокручивается сам. Удержание на пустом месте — меню. ▾ — спрятать клавиатуру. Масштаб: щипок двумя пальцами.</p>
+  <p>Ещё нет: рукописного ввода, символьных преобразований и единиц измерения — это следующие этапы плана.</p>
   <div class="btns"><button class="pri" data-close>Понятно</button></div>
 </div></div>
 <div class="toast" id="toast"></div>
 <!--MATHLIVE_JS-->
+<script>/*WSPD_JS*/</script>
+<script>/*WSP_JS*/</script>
 <script>/*ENGINE_JS*/</script>
 <script>/*XTPL_JS*/</script>
 <script>/*XMCD_JS*/</script>
 <script>/*PLOT_JS*/</script>
+<script>/*EXPORT_JS*/</script>
 <script>/*TEST_JS*/</script>
 <script>/*APP_JS*/</script>
 </body>

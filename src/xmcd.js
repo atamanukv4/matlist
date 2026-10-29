@@ -103,12 +103,14 @@ function importXmcd(xml, DOMParserImpl) {
   for (let b = 0; b < bcs.length; b++) { const its = bcs[b].getElementsByTagName('item'); for (let i = 0; i < its.length; i++) binItems[its[i].getAttribute('item-id')] = its[i].textContent; }
   for (let i = 0; i < regs.length; i++) {
     const r = regs[i]; const x = parseFloat(r.getAttribute('left')) || 0, y = parseFloat(r.getAttribute('top')) || 0;
+    const bgc = r.getAttribute('background-color'); const hl = r.getAttribute('show-highlight') === 'true' ? (/^#[0-9a-f]{6}$/i.test(bgc || '') ? bgc : '#ffff80') : null;
+    const push = o => { if (hl) o.hl = hl; out.push(o); };
     const body = kids(r).filter(c => local(c) !== 'rendering')[0]; if (!body) continue;
     const kind = local(body);
     if (kind === 'text') {
       const t = textOf(body); if (!t) continue;
       const fEl = body.getElementsByTagName('f')[0]; const fs = fEl && parseFloat(fEl.getAttribute('size'));
-      out.push({ kind: 'text', x, y, text: t, bold: isBold(body), wpt: parseFloat(r.getAttribute('width')) || null, fpt: fs || null }); continue;
+      push({ kind: 'text', x, y, text: t, bold: isBold(body), wpt: parseFloat(r.getAttribute('width')) || null, fpt: fs || null }); continue;
     }
     if (kind === 'math') {
       const st = kids(body)[0]; if (!st) continue; const sk = local(st);
@@ -117,7 +119,20 @@ function importXmcd(xml, DOMParserImpl) {
       if (resEl) { const rv = kids(resEl)[0]; if (rv && local(rv) === 'real') stored = parseFloat(rv.textContent); }
       try {
         let node;
-        if (sk === 'define' || sk === 'globalDefine') {
+        const symOf = el => { // «→»: выражение, ключевые слова, результат
+          const ch = kids(el); const cmds = ch.filter(c => local(c) === 'command').map(c => (c.textContent || '').trim().split(/\s+/)[0]);
+          const res = ch.find(c => local(c) === 'symResult'); const ex = ch.find(c => !['command', 'symResult'].includes(local(c)));
+          const simple = cmds.every(c => /^(float|simplify|expand|factor|collect|complex|assume)$/.test(c));
+          return { ex, res: res && kids(res)[0], simple, cmds };
+        };
+        if ((sk === 'define' || sk === 'globalDefine') && kids(st).some(c => local(c) === 'symEval')) {
+          const k = kids(st); const se = symOf(k.find(c => local(c) === 'symEval'));
+          if (se.simple || !se.res) node = { type: 'define', global: sk === 'globalDefine', lhs: conv(k[0]), rhs: conv(se.ex), show: true, sym: true };
+          else { node = { type: 'define', global: sk === 'globalDefine', lhs: conv(k[0]), rhs: conv(se.res) }; warnings.add('символьные ключевые слова (' + se.cmds.join(', ') + ') заменены результатом, сохранённым в файле'); }
+        } else if (sk === 'symEval') {
+          const se = symOf(st);
+          node = se.simple || !se.res ? { type: 'eval', expr: conv(se.ex), sym: true } : { type: 'eval', expr: conv(se.res) };
+        } else if (sk === 'define' || sk === 'globalDefine') {
           const k = kids(st).filter(c => !['result', 'unitOverride'].includes(local(c)));
           const rEl = k[1]; const inl = rEl && local(rEl) === 'eval'; // c := … = (вывод внутри определения)
           const rIn = inl ? kids(rEl).filter(c => !['result', 'unitOverride'].includes(local(c)))[0] : rEl;
@@ -133,19 +148,19 @@ function importXmcd(xml, DOMParserImpl) {
         } else node = { type: 'expr', expr: conv(st) };
         const latex = E.stmtToTex(node);
         if (/unsupported|\\text\{[a-zA-Z]+\}/.test(JSON.stringify(node))) warnings.add('часть операторов (программы, символика, блоки решений) пока не переносится');
-        out.push({ kind: 'math', x, y, latex, stored });
-      } catch (e) { out.push({ kind: 'text', x, y, text: '[формула не прочитана: ' + e.message + ']' }); }
+        push({ kind: 'math', x, y, latex, stored });
+      } catch (e) { push({ kind: 'text', x, y, text: '[формула не прочитана: ' + e.message + ']' }); }
       continue;
     }
-    if (kind === 'plot') { out.push({ kind: 'note', x, y, text: '[график Mathcad — перенос графиков из .xmcd на этапе 3]' }); warnings.add('графики из файла пока показаны заглушкой'); continue; }
+    if (kind === 'plot') { push({ kind: 'note', x, y, text: '[график Mathcad — перенос графиков из .xmcd на этапе 3]' }); warnings.add('графики из файла пока показаны заглушкой'); continue; }
     if (kind === 'picture') {
       const png = body.getElementsByTagName('png')[0] || [...body.getElementsByTagNameNS ? body.getElementsByTagNameNS('*', 'png') : []][0];
       const id = png && png.getAttribute('item-idref'); const data = id && binItems[id];
-      if (data) { const dw = parseFloat(png.getAttribute('display-width')) || 200, dh = parseFloat(png.getAttribute('display-height')) || 150; out.push({ kind: 'image', x, y, src: 'data:image/png;base64,' + data.replace(/\s+/g, ''), w: dw * 4 / 3, h: dh * 4 / 3, pt: true }); }
-      else out.push({ kind: 'note', x, y, text: '[рисунок]' });
+      if (data) { const dw = parseFloat(png.getAttribute('display-width')) || 200, dh = parseFloat(png.getAttribute('display-height')) || 150; push({ kind: 'image', x, y, src: 'data:image/png;base64,' + data.replace(/\s+/g, ''), w: dw * 4 / 3, h: dh * 4 / 3, pt: true }); }
+      else push({ kind: 'note', x, y, text: '[рисунок]' });
       continue;
     }
-    out.push({ kind: 'note', x, y, text: '[' + kind + ' — пока не поддерживается]' }); warnings.add('встречены неподдерживаемые регионы: ' + kind);
+    push({ kind: 'note', x, y, text: '[' + kind + ' — пока не поддерживается]' }); warnings.add('встречены неподдерживаемые регионы: ' + kind);
   }
   // настройки листа: формат результатов и ORIGIN
   const settings = {};
@@ -219,9 +234,10 @@ function mlStatement(st) {
     if (st.lhs.type === 'call') lhs = '<ml:function>' + mlId(st.lhs.f) + '<ml:boundVars>' + st.lhs.args.map(a => mlId(a.name)).join('') + '</ml:boundVars></ml:function>';
     else lhs = ml(st.lhs);
     // определение с выводом (c := … =): Mathcad 15 оборачивает в ml:eval правую часть внутри define
-    const rhs = st.show ? '<ml:eval>' + ml(st.rhs) + '</ml:eval>' : ml(st.rhs);
+    const rhs = st.sym ? '<ml:symEval>' + ml(st.rhs) + '</ml:symEval>' : st.show ? '<ml:eval>' + ml(st.rhs) + '</ml:eval>' : ml(st.rhs);
     return '<ml:' + (st.global ? 'globalDefine' : 'define') + '>' + lhs + rhs + '</ml:' + (st.global ? 'globalDefine' : 'define') + '>';
   }
+  if (st.type === 'eval' && st.sym) return '<ml:symEval>' + ml(st.expr) + '</ml:symEval>';
   if (st.type === 'eval') return '<ml:eval placeholderMultiplicationStyle="default" resultMultiplicationStyle="default">' + ml(st.expr) + '</ml:eval>';
   if (st.type === 'expr') return ml(st.expr);
   throw new Unsupported('пустая формула');
@@ -234,9 +250,10 @@ function exportXmcd(regions, settings, parse) {
     .replace('{{PREC}}', settings.decimals != null ? settings.decimals : 3).replace('{{EXPTHR}}', settings.expThreshold != null ? settings.expThreshold : 3)
     .replace('{{IMAG}}', settings.imagUnit === 'j' ? 'j' : 'i').replace('{{ORIGIN}}', settings.origin || 0);
   let id = 1, out = ''; const items = [];
+  let curHl = null;
   const reg = (x, y, w, h, body) => {
     const L = (x / PT).toFixed(2), Tp = (y / PT).toFixed(2), W = Math.max(10, w / PT).toFixed(2), H = Math.max(10, h / PT).toFixed(2), AY = (y / PT + Math.max(10, h / PT) * 0.6).toFixed(2);
-    out += '\t\t<region region-id="' + (id++) + '" left="' + L + '" top="' + Tp + '" width="' + W + '" height="' + H + '" align-x="' + L + '" align-y="' + AY + '" show-border="false" show-highlight="false" is-protected="true" z-order="0" background-color="inherit" tag="">\n\t\t\t' + body + '\n\t\t</region>\n';
+    out += '\t\t<region region-id="' + (id++) + '" left="' + L + '" top="' + Tp + '" width="' + W + '" height="' + H + '" align-x="' + L + '" align-y="' + AY + '" show-border="false" show-highlight="' + (curHl ? 'true' : 'false') + '" is-protected="true" z-order="0" background-color="' + (curHl || 'inherit') + '" tag="">\n\t\t\t' + body + '\n\t\t</region>\n';
   };
   const text = (r, t, bold) => {
     const ps = String(t).split('\n').map(line => '<p style="Обычный" margin-left="inherit" margin-right="inherit" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit">' + (bold ? '<b>' + esc(line) + '</b>' : esc(line)) + '</p>').join('');
@@ -249,7 +266,7 @@ function exportXmcd(regions, settings, parse) {
   const STEP = 26; // px между строками развёрнутой системы
   let shift = 0; // сдвиг вниз регионов после развёрнутых систем — чтобы не нарушить порядок вычисления
   for (const r0 of sortedRegs) {
-    const r = Object.assign({}, r0, { y: r0.y + shift });
+    const r = Object.assign({}, r0, { y: r0.y + shift }); curHl = r.hl || null;
     if (r.kind === 'math') {
       if (!r.latex || !r.latex.trim()) continue;
       let st = null, sol = null;

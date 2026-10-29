@@ -15,10 +15,13 @@ function build(mode) {
   put('/*APP_CSS*/', rd('src/style.css'));
   const fontsDir = mode === 'web' ? null : 'fonts'; // web: шрифты встроены в CSS, MathLive их не грузит
   put('<!--MATHLIVE_JS-->', `<script>window.MATLIST_FONTS=${JSON.stringify(fontsDir)};</script>\n<script src="${mode === 'web' ? CDN + '/mathlive.min.js' : 'mathlive.min.js'}"></script>`, true);
+  put('/*WSPD_JS*/', rd('src/wsp_data.js'));
+  put('/*WSP_JS*/', rd('src/wsp.js'));
   put('/*ENGINE_JS*/', rd('src/engine.js'));
   put('/*XTPL_JS*/', rd('src/xmcd_template.js'));
   put('/*XMCD_JS*/', rd('src/xmcd.js'));
   put('/*PLOT_JS*/', rd('src/plot.js'));
+  put('/*EXPORT_JS*/', rd('src/export.js'));
   put('/*TEST_JS*/', rd('src/testsheet.js'));
   put('/*APP_JS*/', rd('src/app.js'));
   return html;

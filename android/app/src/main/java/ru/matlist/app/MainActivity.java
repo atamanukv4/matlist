@@ -8,6 +8,10 @@ import android.graphics.Color;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.print.PrintAttributes;
+import android.print.PrintDocumentAdapter;
+import android.print.PrintManager;
+import android.util.Base64;
 import android.provider.OpenableColumns;
 import android.view.View;
 import android.view.WindowManager;
@@ -32,7 +36,8 @@ import java.nio.charset.StandardCharsets;
  * Матлист для Android: веб-ядро из assets в WebView.
  * Страница отдаётся с адреса https://appassets.androidplatform.net/assets/…, чтобы у неё был
  * постоянный origin (localStorage сохраняется между запусками).
- * Мост MatlistAndroid: saveFile(имя, текст) — сохранить .xmcd через системный диалог; ready() — страница загрузилась.
+ * Мост MatlistAndroid: saveFile(имя, текст) и saveBase64(имя, тип, base64) — сохранить файл через системный диалог;
+ * printHtml(html, имя) — печать/PDF; ready() — страница загрузилась.
  * «Открыть с помощью → Матлист» для .xmcd передаёт содержимое в window.MATLIST_OPEN_TEXT(имя, текст).
  */
 public class MainActivity extends Activity {
@@ -42,7 +47,8 @@ public class MainActivity extends Activity {
 
     private WebView web;
     private ValueCallback<Uri[]> pickCallback;
-    private String pendingSaveText;
+    private byte[] pendingSaveBytes;
+    private WebView printView; // страница для печати в PDF (держим ссылку до конца печати)
     private String pendingOpenName, pendingOpenText;
     private boolean pageReady;
 
@@ -186,12 +192,12 @@ public class MainActivity extends Activity {
                 pickCallback = null;
             }
         } else if (req == REQ_SAVE) {
-            String text = pendingSaveText;
-            pendingSaveText = null;
-            if (res != RESULT_OK || data == null || data.getData() == null || text == null) return;
+            byte[] bytes = pendingSaveBytes;
+            pendingSaveBytes = null;
+            if (res != RESULT_OK || data == null || data.getData() == null || bytes == null) return;
             try (OutputStream out = getContentResolver().openOutputStream(data.getData(), "wt")) {
                 if (out == null) throw new Exception("нет доступа к файлу");
-                out.write(text.getBytes(StandardCharsets.UTF_8));
+                out.write(bytes);
                 Toast.makeText(this, "Файл сохранён", Toast.LENGTH_SHORT).show();
             } catch (Exception e) {
                 Toast.makeText(this, "Не удалось сохранить: " + e.getMessage(), Toast.LENGTH_LONG).show();
@@ -207,6 +213,44 @@ public class MainActivity extends Activity {
         });
     }
 
+    private void askSave(String name, String mime, byte[] bytes) {
+        runOnUiThread(() -> {
+            pendingSaveBytes = bytes;
+            Intent i = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+            i.addCategory(Intent.CATEGORY_OPENABLE);
+            i.setType(mime == null || mime.isEmpty() ? "application/octet-stream" : mime);
+            i.putExtra(Intent.EXTRA_TITLE, name);
+            try {
+                startActivityForResult(i, REQ_SAVE);
+            } catch (ActivityNotFoundException e) {
+                pendingSaveBytes = null;
+                Toast.makeText(MainActivity.this, "Нет приложения для сохранения файлов", Toast.LENGTH_LONG).show();
+            }
+        });
+    }
+
+    private void printPage(String html, String title) {
+        final WebView pv = new WebView(this);
+        pv.getSettings().setJavaScriptEnabled(false);
+        pv.setWebViewClient(new WebViewClient() {
+            @Override
+            public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
+                return serveAsset(request.getUrl());
+            }
+
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                PrintManager pm = (PrintManager) getSystemService(PRINT_SERVICE);
+                if (pm == null) { Toast.makeText(MainActivity.this, "Печать недоступна", Toast.LENGTH_LONG).show(); return; }
+                String job = (title == null || title.isEmpty()) ? "Матлист" : title;
+                PrintDocumentAdapter ad = view.createPrintDocumentAdapter(job);
+                pm.print(job, ad, new PrintAttributes.Builder().setMediaSize(PrintAttributes.MediaSize.ISO_A4).build());
+            }
+        });
+        printView = pv;
+        pv.loadDataWithBaseURL("https://" + HOST + "/assets/", html, "text/html", "utf-8", null);
+    }
+
     @Override
     protected void onSaveInstanceState(Bundle out) {
         super.onSaveInstanceState(out);
@@ -217,19 +261,19 @@ public class MainActivity extends Activity {
     private class Bridge {
         @JavascriptInterface
         public void saveFile(String name, String text) {
-            runOnUiThread(() -> {
-                pendingSaveText = text;
-                Intent i = new Intent(Intent.ACTION_CREATE_DOCUMENT);
-                i.addCategory(Intent.CATEGORY_OPENABLE);
-                i.setType("application/octet-stream");
-                i.putExtra(Intent.EXTRA_TITLE, name);
-                try {
-                    startActivityForResult(i, REQ_SAVE);
-                } catch (ActivityNotFoundException e) {
-                    pendingSaveText = null;
-                    Toast.makeText(MainActivity.this, "Нет приложения для сохранения файлов", Toast.LENGTH_LONG).show();
-                }
-            });
+            askSave(name, "application/octet-stream", text.getBytes(StandardCharsets.UTF_8));
+        }
+
+        /** Двоичный файл (docx и т. п.) в base64. */
+        @JavascriptInterface
+        public void saveBase64(String name, String mime, String b64) {
+            askSave(name, mime, Base64.decode(b64, Base64.DEFAULT));
+        }
+
+        /** Печать HTML-страницы листа: в системном окне печати можно выбрать «Сохранить как PDF». */
+        @JavascriptInterface
+        public void printHtml(String html, String title) {
+            runOnUiThread(() -> printPage(html, title));
         }
 
         @JavascriptInterface
