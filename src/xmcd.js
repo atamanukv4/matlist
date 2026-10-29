@@ -8,16 +8,22 @@ function local(el) { return (el.localName || el.nodeName || '').replace(/^ml:/, 
 function kids(el) { const out = []; for (let c = el.firstChild; c; c = c.nextSibling) if (c.nodeType === 1) out.push(c); return out; }
 function unsupported(what) { return { type: 'unsupported', what }; }
 
+let COLLIDE = new Set(), STYLES = {};
+function styleOf(body) { const p = body.getElementsByTagName('p')[0]; let st = p && STYLES[p.getAttribute('style')]; const o = {}; for (let k = 0; st && k < 4; k++) { if (o.ff == null && st.ff) o.ff = st.ff; if (o.fs == null && st.fs) o.fs = st.fs; if (o.bold == null && st.bold) o.bold = true; st = STYLES[st.base]; } return o; }
+const MP2 = () => (typeof module !== 'undefined' && module.exports) ? require('./mcplot.js') : root.MatMcPlot;
+// подпись графика: изменился ли он после открытия (если нет — в .xmcd пишется исходный график Mathcad)
+function plotSig(r) { return JSON.stringify([r.ys, r.xs, r.xmin, r.xmax, r.ymin, r.ymax, r.logx, r.logy, r.w, r.h, r.st, r.legend]); } // имена, которые в листе есть и с пустым индексом (subscript=""), и без него: в Mathcad это разные переменные
 function idName(el) {
   const base = (el.textContent || '').trim();
   const sub = el.getAttribute('subscript');
+  if (sub === '' && COLLIDE.has(base)) return base + '_';
   return sub ? base + '_' + sub : base;
 }
 
 function conv(el) {
   const t = local(el);
   switch (t) {
-    case 'id': return { type: 'id', name: idName(el) };
+    case 'id': { const nm = idName(el); const o = { type: 'id', name: nm }; if (!el.hasAttribute('subscript') && E.UNITS && (E.UNITS.has(nm) || (E.TEMP && E.TEMP[nm]))) o.u = true; return o; }
     case 'real': { const v = parseFloat(el.textContent); return v < 0 ? { type: 'neg', e: { type: 'num', v: -v } } : { type: 'num', v }; }
     case 'imag': return { type: 'imag', v: parseFloat(el.textContent) };
     case 'complex': { const k = kids(el); let re = 0, im = 0; for (const c of k) { if (local(c) === 'real') re = parseFloat(c.textContent); if (local(c) === 'imag') im = parseFloat(c.textContent); } return { type: 'bin', op: '+', l: { type: 'num', v: re }, r: { type: 'imag', v: im } }; }
@@ -38,6 +44,7 @@ function conv(el) {
     case 'apply': return convApply(el);
     case 'sequence': return unsupported('последовательность');
     case 'unitOverride': return null;
+    case 'provenance': { const k = kids(el).filter(c => el.namespaceURI ? c.namespaceURI === el.namespaceURI : /^ml:/.test(c.nodeName)); return conv(k[k.length - 1]); }
     default: return unsupported(t);
   }
 }
@@ -46,6 +53,11 @@ const SOLVERS = { Find: 1, Minimize: 1, Maximize: 1, Minerr: 1, Odesolve: 1, pol
 function lambdaOf(el) { const k = kids(el); const vars = kids(k[0]).map(idName); return { v: vars[0], body: conv(k[1]) }; }
 function convApply(el) {
   const k = kids(el); const head = k[0]; const h = local(head);
+  if (el.getAttribute('fixity') === 'postfix' && h === 'id') { // 20 °C — постфиксная функция
+    const name = idName(head); const arg = k[1] ? conv(k[1]) : null;
+    if (/^Δ?°[CF]$/.test(name)) return arg ? { type: 'bin', op: '·', l: arg, r: { type: 'id', name } } : { type: 'id', name };
+    return { type: 'call', f: name, args: arg ? [arg] : [] };
+  }
   if (h === 'integral' || h === 'summation' || h === 'product' || h === 'derivative') {
     const lam = lambdaOf(k[1]); const third = k[2]; const tl = third ? local(third) : null;
     if (h === 'derivative') { const order = tl === 'degree' ? Math.round(parseFloat(kids(third)[0].textContent)) || 1 : 1; return { type: 'deriv', v: lam.v, order, e: lam.body }; }
@@ -85,11 +97,25 @@ function convApply(el) {
   return unsupported(h);
 }
 
+// результат, сохранённый Mathcad: число или массив (матрицы в файле — по столбцам)
+function storedOf(resEl) {
+  let rv = kids(resEl)[0]; if (rv && local(rv) === 'unitedValue') rv = kids(rv)[0];
+  if (!rv) return null;
+  if (local(rv) === 'real') return parseFloat(rv.textContent);
+  if (local(rv) === 'matrix') {
+    const r = +rv.getAttribute('rows'), c = +rv.getAttribute('cols'); const ks = kids(rv);
+    if (!ks.every(x => local(x) === 'real')) return null;
+    const out = []; for (let i = 0; i < r; i++) for (let j = 0; j < c; j++) out.push(parseFloat(ks[j * r + i].textContent)); return out;
+  }
+  return null;
+}
+function unitOf(el) { const u = kids(el).find(c => local(c) === 'unitOverride'); const x = u && kids(u)[0]; return x ? conv(x) : null; }
 function textOf(el) {
-  const ps = el.getElementsByTagName('p'); const lines = [];
-  for (let i = 0; i < ps.length; i++) lines.push(ps[i].textContent);
-  if (!lines.length) lines.push(el.textContent);
-  return lines.join('\n').replace(/ /g, ' ').trim();
+  // абзацы <p>; переносы <br/>; вложенные в текст регионы (формулы внутри текста) пропускаем — они импортируются отдельно
+  const walk = (n) => { let o = ''; for (let c = n.firstChild; c; c = c.nextSibling) { if (c.nodeType === 3) { const v = c.nodeValue; if (/^\s*$/.test(v) && /\n/.test(v)) continue; o += v.replace(/\s+/g, ' '); } else if (c.nodeType === 1) { const t = local(c); if (t === 'region') { o += ' '; continue; } if (t === 'br') { o += '\n'; continue; } if (t === 'sp') { o += ' '; continue; } o += walk(c); } } return o; };
+  const ps = [...el.getElementsByTagName('p')].filter(p => { for (let a = p.parentNode; a && a !== el; a = a.parentNode) if (local(a) === 'region') return false; return true; });
+  const lines = ps.length ? ps.map(p => walk(p).replace(/ *\n */g, '\n').replace(/^ +| +$/g, '')) : [walk(el).trim()];
+  return lines.join('\n').replace(/ /g, ' ').replace(/^\n+|\n+$/g, '');
 }
 function isBold(el) { return el.getElementsByTagName('b').length > 0; }
 
@@ -97,26 +123,50 @@ function isBold(el) { return el.getElementsByTagName('b').length > 0; }
 function importXmcd(xml, DOMParserImpl) {
   const DP = DOMParserImpl || root.DOMParser;
   const doc = new DP().parseFromString(xml, 'application/xml');
+  { const ids = doc.getElementsByTagName('ml:id'); const plain = new Set(), empty = new Set();
+    for (let i = 0; i < ids.length; i++) { const el = ids[i], nm = (el.textContent || '').trim(); if (!el.hasAttribute('subscript')) plain.add(nm); else if (el.getAttribute('subscript') === '') empty.add(nm); }
+    COLLIDE = new Set([...empty].filter(n => plain.has(n) && !(E.UNITS && E.UNITS.has(n)))); }
+  STYLES = {}; { const ts = doc.getElementsByTagName('textStyle'); for (let i = 0; i < ts.length; i++) { const ia = ts[i].getElementsByTagName('inlineAttr')[0]; const base = ts[i].getAttribute('base-style'); STYLES[ts[i].getAttribute('name')] = { ff: ia && ia.getAttribute('font-family'), fs: ia && parseFloat(ia.getAttribute('font-size')), bold: ia && ia.getAttribute('font-weight') === 'bold', base }; } }
   const regs = doc.getElementsByTagName('region'); const out = []; const warnings = new Set();
   const binItems = {}; // картинки: <binaryContent><item item-id="N">base64</item>
   const bcs = doc.getElementsByTagName('binaryContent');
   for (let b = 0; b < bcs.length; b++) { const its = bcs[b].getElementsByTagName('item'); for (let i = 0; i < its.length; i++) binItems[its[i].getAttribute('item-id')] = its[i].textContent; }
   for (let i = 0; i < regs.length; i++) {
-    const r = regs[i]; const x = parseFloat(r.getAttribute('left')) || 0, y = parseFloat(r.getAttribute('top')) || 0;
+    const r = regs[i]; const x = parseFloat(r.getAttribute('left')) || 0, y = parseFloat(r.getAttribute('top')) || 0; const rh = parseFloat(r.getAttribute('height')); const ady = isFinite(rh) && rh > 1 ? rh / 2 : 0; // порядок счёта Mathcad — по середине региона по высоте
     const bgc = r.getAttribute('background-color'); const hl = r.getAttribute('show-highlight') === 'true' ? (/^#[0-9a-f]{6}$/i.test(bgc || '') ? bgc : '#ffff80') : null;
     const push = o => { if (hl) o.hl = hl; out.push(o); };
     const body = kids(r).filter(c => local(c) !== 'rendering')[0]; if (!body) continue;
     const kind = local(body);
+    if (kind === 'text' && body.getElementsByTagName('region').length) { // текст со вставленными формулами: каждую строку ставим на уровень её формулы
+      const sty = styleOf(body); const fEl = body.getElementsByTagName('f')[0]; const fs = (fEl && parseFloat(fEl.getAttribute('size'))) || sty.fs || 10;
+      const ps = [...body.getElementsByTagName('p')].filter(p => { for (let a = p.parentNode; a && a !== body; a = a.parentNode) if (local(a) === 'region') return false; return true; });
+      let ly = y; const W = parseFloat(r.getAttribute('width')) || null;
+      for (const p of ps) {
+        const one = textOf({ getElementsByTagName: () => [p], firstChild: p.firstChild }).split('\n');
+        const inner = [...p.getElementsByTagName('region')][0]; const ay = inner ? parseFloat(inner.getAttribute('align-y')) : NaN;
+        one.forEach((line, k) => {
+          let top = ly;
+          if (k === one.length - 1 && isFinite(ay)) top = Math.max(ly, ay - fs * 0.95); // строка с формулой — по базовой линии формулы
+          if (line.trim()) push({ kind: 'text', x, y: top, text: line, fpt: fs, oneLine: true, ff: sty.ff || null });
+          ly = top + fs * 1.25;
+        });
+      }
+      continue;
+    }
     if (kind === 'text') {
       const t = textOf(body); if (!t) continue;
-      const fEl = body.getElementsByTagName('f')[0]; const fs = fEl && parseFloat(fEl.getAttribute('size'));
-      push({ kind: 'text', x, y, text: t, bold: isBold(body), wpt: parseFloat(r.getAttribute('width')) || null, fpt: fs || null }); continue;
+      const sty = styleOf(body); const fEl = body.getElementsByTagName('f')[0]; const fs = (fEl && parseFloat(fEl.getAttribute('size'))) || sty.fs || null;
+      const hpt = parseFloat(r.getAttribute('height')) || 0; const nl = t.split('\n').length;
+      const o = { kind: 'text', x, y, text: t, bold: isBold(body) || !!sty.bold, wpt: parseFloat(r.getAttribute('width')) || null, fpt: fs || null, ff: sty.ff || null };
+      if (hpt && hpt < 1.6 * (fs || 10) * 1.2 && nl === 1) o.oneLine = true;
+      else if (hpt && nl > 1 && hpt / nl > (fs || 10) * 1.45) o.lhpt = hpt / nl; // строки с формулами внутри текста в Mathcad выше обычных
+      push(o); continue;
     }
     if (kind === 'math') {
-      const st = kids(body)[0]; if (!st) continue; const sk = local(st);
+      let st = kids(body)[0]; while (st && local(st) === 'provenance') { const pk = kids(st).filter(c => /math30/.test(c.namespaceURI || '') || /^ml:/.test(c.nodeName)); st = pk[pk.length - 1]; } if (!st) continue; const sk = local(st);
       let stored = null;
       const resEl = [...kids(st)].find(c => local(c) === 'result');
-      if (resEl) { const rv = kids(resEl)[0]; if (rv && local(rv) === 'real') stored = parseFloat(rv.textContent); }
+      if (resEl) stored = storedOf(resEl);
       try {
         let node;
         const symOf = el => { // «→»: выражение, ключевые слова, результат
@@ -138,21 +188,31 @@ function importXmcd(xml, DOMParserImpl) {
           const rIn = inl ? kids(rEl).filter(c => !['result', 'unitOverride'].includes(local(c)))[0] : rEl;
           node = { type: 'define', global: sk === 'globalDefine', lhs: conv(k[0]), rhs: conv(rIn) };
           if (inl || k.length > 2) node.show = true;
-          if (inl) { const rr = kids(rEl).find(c => local(c) === 'result'); if (rr) { const rv = kids(rr)[0]; if (rv && local(rv) === 'real') stored = parseFloat(rv.textContent); } }
+          if (inl) { const rr = kids(rEl).find(c => local(c) === 'result'); if (rr) stored = storedOf(rr); const uo = unitOf(rEl); if (uo) node.unit = uo; }
         } else if (sk === 'eval') {
           const k = kids(st).filter(c => !['result', 'unitOverride'].includes(local(c)));
           const inner = k[0];
           if (inner && local(inner) === 'define') { node = { type: 'define', lhs: conv(kids(inner)[0]), rhs: conv(kids(inner)[1]), show: true }; }
           else node = { type: 'eval', expr: conv(inner) };
-          if (kids(st).some(c => local(c) === 'unitOverride')) warnings.add('единицы измерения в выводе пока не поддерживаются — числа показаны в СИ');
+          { const uo = unitOf(st); if (uo) node.unit = uo; }
         } else node = { type: 'expr', expr: conv(st) };
         const latex = E.stmtToTex(node);
         if (/unsupported|\\text\{[a-zA-Z]+\}/.test(JSON.stringify(node))) warnings.add('часть операторов (программы, символика, блоки решений) пока не переносится');
-        push({ kind: 'math', x, y, latex, stored });
+        const mcErr = body.getAttribute('error'); push(Object.assign({ kind: 'math', x, y, latex, stored }, mcErr ? { mcErr } : {}, ady ? { ady, hpt: rh } : {}, st.getAttribute && st.getAttribute('style') === 'equal' ? { defEq: true } : {}));
       } catch (e) { push({ kind: 'text', x, y, text: '[формула не прочитана: ' + e.message + ']' }); }
       continue;
     }
-    if (kind === 'plot') { push({ kind: 'note', x, y, text: '[график Mathcad — перенос графиков из .xmcd на этапе 3]' }); warnings.add('графики из файла пока показаны заглушкой'); continue; }
+    if (kind === 'plot') { // двумерный график Mathcad: двоичный объект + картинка, которую нарисовал сам Mathcad
+      const pid = body.getAttribute('item-idref'); const rend = kids(r).find(c => local(c) === 'rendering'); const rid = rend && rend.getAttribute('item-idref');
+      const w = (parseFloat(r.getAttribute('width')) || 240) * 4 / 3, hh = (parseFloat(r.getAttribute('height')) || 160) * 4 / 3;
+      const snap = rid && binItems[rid] ? 'data:image/png;base64,' + binItems[rid].replace(/\s+/g, '') : null;
+      const base = { x, y, w: Math.round(w), h: Math.round(hh), pt: true, mc: pid && binItems[pid] ? binItems[pid].replace(/\s+/g, '') : null, mcPng: rid && binItems[rid] ? binItems[rid].replace(/\s+/g, '') : null, snap };
+      let pr = null, why = '';
+      try { if (!MP2()) throw new Error('модуль графиков не загружен'); pr = MP2().toRegion(MP2().decodePlot(base.mc, { collide: COLLIDE })); } catch (e) { why = e.message; }
+      if (pr) { const o = Object.assign(pr, base); o.mcSig = plotSig(o); push(o); }
+      else { push(Object.assign({ kind: 'plot', ys: '', xs: '', snapOnly: true, mcWhy: why }, base)); warnings.add('часть графиков показана картинкой из файла (' + why + ')'); }
+      continue;
+    }
     if (kind === 'picture') {
       const png = body.getElementsByTagName('png')[0] || [...body.getElementsByTagNameNS ? body.getElementsByTagNameNS('*', 'png') : []][0];
       const id = png && png.getAttribute('item-idref'); const data = id && binItems[id];
@@ -178,9 +238,11 @@ function importXmcd(xml, DOMParserImpl) {
 // ───────── запись: дерево Матлиста → ml (math30.xsd) ─────────
 const T = (typeof module !== 'undefined' && module.exports) ? require('./xmcd_template.js') : root.MatXmcdTemplate;
 const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-function mlId(name) {
-  const us = name.indexOf('_'); const base = us >= 0 ? name.slice(0, us) : name; const sub = us >= 0 ? name.slice(us + 1) : null;
-  return '<ml:id xml:space="preserve"' + (sub ? ' subscript="' + esc(sub) + '"' : '') + '>' + esc(base) + '</ml:id>';
+let EXP_DEFINED = new Set(); // имена, которые лист определяет сам
+function mlId(name, node) {
+  const us = name.indexOf('_'); const base = us >= 0 ? name.slice(0, us) : name; let sub = us >= 0 ? name.slice(us + 1) : null;
+  if (sub === null && node && !node.u && E.UNITS && E.UNITS.has(name) && EXP_DEFINED.has(name)) sub = ''; // переменная листа с именем единицы: в Mathcad — с пустым индексом
+  return '<ml:id xml:space="preserve"' + (sub !== null ? ' subscript="' + esc(sub) + '"' : '') + '>' + esc(base) + '</ml:id>';
 }
 function mlNum(v) {
   if (v < 0) return '<ml:apply><ml:neg/>' + mlNum(-v) + '</ml:apply>';
@@ -198,11 +260,13 @@ function ml(n) {
     case 'num': return mlNum(n.v >= 1e306 ? 1e307 : n.v);
     case 'imag': return '<ml:imag symbol="i">' + n.v + '</ml:imag>';
     case 'str': return '<ml:str xml:space="preserve">' + esc(n.v) + '</ml:str>';
-    case 'id': return mlId(n.name);
+    case 'id': return mlId(n.name, n);
     case 'paren': return '<ml:parens>' + ml(n.e) + '</ml:parens>';
     case 'neg': return ap('neg', ml(n.e));
     case 'un': return ap('not', ml(n.e));
-    case 'bin': { const op = OPS[n.op]; if (!op) throw new Unsupported(n.op); return '<ml:apply><ml:' + op + '/>' + ml(n.l) + ml(n.r) + '</ml:apply>'; }
+    case 'bin': {
+      if (n.op === '·' && n.r.type === 'id' && /^°[CF]$/.test(n.r.name)) return '<ml:apply fixity="postfix">' + mlId(n.r.name) + ml(n.l) + '</ml:apply>'; // 20 °C
+      const op = OPS[n.op]; if (!op) throw new Unsupported(n.op); return '<ml:apply><ml:' + op + '/>' + ml(n.l) + ml(n.r) + '</ml:apply>'; }
     case 'pow': return ap('pow', ml(n.b), ml(n.e));
     case 'sqrt': return ap('sqrt', ml(n.e));
     case 'root': return ap('nthRoot', ml(n.n), ml(n.e));
@@ -234,11 +298,12 @@ function mlStatement(st) {
     if (st.lhs.type === 'call') lhs = '<ml:function>' + mlId(st.lhs.f) + '<ml:boundVars>' + st.lhs.args.map(a => mlId(a.name)).join('') + '</ml:boundVars></ml:function>';
     else lhs = ml(st.lhs);
     // определение с выводом (c := … =): Mathcad 15 оборачивает в ml:eval правую часть внутри define
-    const rhs = st.sym ? '<ml:symEval>' + ml(st.rhs) + '</ml:symEval>' : st.show ? '<ml:eval>' + ml(st.rhs) + '</ml:eval>' : ml(st.rhs);
+    const uo = st.unit ? '<ml:unitOverride>' + ml(st.unit) + '</ml:unitOverride>' : '';
+    const rhs = st.sym ? '<ml:symEval>' + ml(st.rhs) + '</ml:symEval>' : st.show ? '<ml:eval>' + ml(st.rhs) + uo + '</ml:eval>' : ml(st.rhs);
     return '<ml:' + (st.global ? 'globalDefine' : 'define') + '>' + lhs + rhs + '</ml:' + (st.global ? 'globalDefine' : 'define') + '>';
   }
   if (st.type === 'eval' && st.sym) return '<ml:symEval>' + ml(st.expr) + '</ml:symEval>';
-  if (st.type === 'eval') return '<ml:eval placeholderMultiplicationStyle="default" resultMultiplicationStyle="default">' + ml(st.expr) + '</ml:eval>';
+  if (st.type === 'eval') return '<ml:eval placeholderMultiplicationStyle="default" resultMultiplicationStyle="default">' + ml(st.expr) + (st.unit ? '<ml:unitOverride>' + ml(st.unit) + '</ml:unitOverride>' : '') + '</ml:eval>';
   if (st.type === 'expr') return ml(st.expr);
   throw new Unsupported('пустая формула');
 }
@@ -259,7 +324,9 @@ function exportXmcd(regions, settings, parse) {
     const ps = String(t).split('\n').map(line => '<p style="Обычный" margin-left="inherit" margin-right="inherit" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit">' + (bold ? '<b>' + esc(line) + '</b>' : esc(line)) + '</p>').join('');
     reg(r.x, r.y, r.w || Math.min(500, 8 * String(t).length + 20), r.h || 18 * String(t).split('\n').length, '<text use-page-width="false" push-down="false" lock-width="' + (r.w ? 'true' : 'false') + '">' + ps + '</text>');
   };
-  const sortedRegs = regions.slice().sort((a, b) => a.y - b.y || a.x - b.x);
+  const sortedRegs = regions.slice().sort((a, b) => (a.y + (a.ady || 0)) - (b.y + (b.ady || 0)) || a.x - b.x);
+  EXP_DEFINED = new Set();
+  for (const r of sortedRegs) if (r.kind === 'math' && r.latex) { try { const st = parse(r.latex); if (st.type === 'define') { const l = st.lhs; const n = l.type === 'id' ? l : l.type === 'sub' ? l.e : null; if (n && n.type === 'id' && !n.u) EXP_DEFINED.add(n.name); if (l.type === 'call') l.args.forEach(a => a.type === 'id' && EXP_DEFINED.add(a.name)); } } catch (e) { /* пропуск */ } }
   // прогон листа ядром: нужен для систем уравнений (их решение — начальные приближения для Find в Mathcad)
   const runner = new E.SheetRunner(settings.origin || 0);
   const mathReg = (x, y, h, mlText) => reg(x, y, 140, h, '<math optimize="false" disable-calc="false">' + mlText + '</math>');
@@ -294,11 +361,17 @@ function exportXmcd(regions, settings, parse) {
           shift += y - r.y + (names.length > 1 ? 30 : 0); notes.push('системы уравнений записаны как Given … Find');
           continue;
         }
-        mathReg(r.x, r.y, r.h || 24, mlStatement(st));
+        mathReg(r.x, r.y, r.hpt ? r.hpt * PT : (r.h || 24), mlStatement(st));
       } catch (e) { notes.push((e instanceof Unsupported ? 'не переносится в .xmcd: ' : 'ошибка формулы: ') + e.message); text(r, '[Матлист: ' + r.latex + ']'); }
     } else if (r.kind === 'text') text(r, r.text || '', r.bold);
     else if (r.kind === 'note') text(r, r.text || '');
-    else if (r.kind === 'plot') { notes.push('графики пока сохраняются в .xmcd как подпись'); text(r, '[график Матлиста: ' + (r.ys || '') + ' от ' + (r.xs || '') + ']'); }
+    else if (r.kind === 'plot') {
+      if (r.mc && r.mcPng && (r.snapOnly || r.mcSig === plotSig(r))) { // график из Mathcad не меняли — пишем его как был
+        const i1 = items.length + 1; items.push('\t\t<item item-id="' + i1 + '" content-encoding="gzip">' + r.mc + '</item>\n');
+        const i2 = items.length + 1; items.push('\t\t<item item-id="' + i2 + '">' + r.mcPng + '</item>\n');
+        reg(r.x, r.y, r.w, r.h, '<plot disable-calc="false" item-idref="' + i1 + '"/><rendering item-idref="' + i2 + '"/>');
+      } else { notes.push('новые и изменённые графики пока сохраняются в .xmcd как подпись'); text(r, '[график Матлиста: ' + (r.ys || '') + ' от ' + (r.xs || '') + ']'); }
+    }
     else if (r.kind === 'image') {
       if (!r.png) { notes.push('картинка не сохранена (не загрузилась)'); continue; }
       const item = items.length + 1; items.push('\t\t<item item-id="' + item + '">' + r.png + '</item>\n');
@@ -309,6 +382,6 @@ function exportXmcd(regions, settings, parse) {
   return { xml: head + out + '\t</regions>\n' + bin + '</worksheet>\n', notes: [...new Set(notes)] };
 }
 
-const api = { importXmcd, exportXmcd };
+const api = { plotSig, importXmcd, exportXmcd };
 if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.MatXmcd = api;
 })(typeof self !== 'undefined' ? self : this);

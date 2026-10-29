@@ -29,6 +29,8 @@ button{font:inherit;color:inherit}
 .rg.drag{opacity:.75;border-style:dashed;border-color:var(--accent);z-index:20}
 .rg.math{font-size:16px}
 .rg.math .ML__latex{font-size:1em}
+.page.mc .rg.math{font-size:13.5px}
+.page.mc .rg.text{font-family:Arial,'Liberation Sans',Helvetica,sans-serif;font-size:13.3px}
 .rg.err .eq{color:var(--err)}
 .rg .res{color:var(--result)}
 .rg .res.tbl{display:inline-block;vertical-align:middle;border:1px solid #98a2b3;border-radius:3px;padding:0 6px;margin-left:2px}
@@ -167,3 +169,37 @@ body.dragging .sheetwrap{touch-action:none}
 .rbar.pal .sw.on{outline:2px solid var(--accent);outline-offset:1px}
 .rbar{flex-wrap:wrap;max-width:calc(100vw - 16px)}
 .keys button.wsp{font-size:11px;letter-spacing:-.2px}
+.keys button.unit{font-family:"Times New Roman",serif;font-size:15px}
+.keys button.unit.sm{font-size:12px}
+
+/* справка WSP */
+.dlg .box.wspbox{max-width:560px;max-height:calc(100vh - 40px);display:flex;flex-direction:column}
+.dlg #wspQ{width:100%;margin-bottom:8px}
+.wsplist{overflow-y:auto;flex:1;min-height:120px;-webkit-overflow-scrolling:touch}
+.wsplist .wi{padding:8px 4px;border-bottom:1px solid var(--line);cursor:pointer}
+.wsplist .wi:active{background:var(--accent-soft)}
+.wsplist .wn{font-family:'Times New Roman',serif;font-size:15px;color:var(--ink)}
+.wsplist .wn b{font-weight:600}
+.wsplist .wd{font-size:13px;color:var(--ink);margin-top:2px}
+.wsplist .wa{font-size:12px;color:var(--muted);margin-top:2px}
+.wsplist .wr{font-size:12px;color:#8a5a00;margin-top:1px}
+.wsplist .wgrp{font-size:12px;font-weight:650;color:var(--muted);padding:10px 4px 2px;text-transform:uppercase;letter-spacing:.4px}
+.whint{position:fixed;left:8px;right:8px;z-index:105;background:#1d2330;color:#fff;border-radius:10px;padding:8px 10px;font-size:13px;line-height:1.35;box-shadow:0 6px 18px rgba(0,0,0,.25);display:none}
+.whint.on{display:block}
+.whint b{font-family:'Times New Roman',serif;font-size:14px}
+
+/* рукописный ввод */
+.tools button.pen{display:flex;align-items:center;justify-content:center}
+.tools button.pen.on{background:var(--accent);color:#fff}
+.inkpanel{position:fixed;left:0;right:0;bottom:0;height:min(46vh,380px);background:var(--page);border-top:1px solid var(--line);box-shadow:0 -6px 18px rgba(16,24,40,.12);z-index:60;display:none;flex-direction:column}
+.inkpanel.on{display:flex}
+.inkbar{min-height:46px;border-bottom:1px solid var(--line);display:flex;align-items:center;padding:4px 6px;overflow-x:auto}
+.inkcands{display:flex;gap:6px;align-items:center;white-space:nowrap}
+.inkcands .cand{border:1px solid var(--line);border-radius:10px;padding:3px 10px;background:#fff;font-size:18px;cursor:pointer;min-height:34px;display:flex;align-items:center}
+.inkcands .cand.on{border-color:var(--accent);background:var(--accent-soft)}
+.inkhint{color:var(--muted);font-size:13px;padding:0 4px}
+#inkCv{flex:1;width:100%;touch-action:none;background:repeating-linear-gradient(#fff 0 47px,#eef1f5 47px 48px);cursor:crosshair}
+.inktools{display:flex;gap:6px;padding:6px;border-top:1px solid var(--line)}
+.inktools .sp{flex:1}
+.inktools button{border:0;border-radius:9px;padding:9px 14px;background:var(--key-alt);font-size:14px}
+.inktools button.pri{background:var(--accent);color:#fff}

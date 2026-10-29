@@ -10,7 +10,8 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "mathlive": "0.111.1"
+    "mathlive": "0.111.1",
+    "onnxruntime-web": "1.20.1"
   },
   "devDependencies": {
     "@xmldom/xmldom": "^0.9.12"

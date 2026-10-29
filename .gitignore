@@ -9,3 +9,4 @@ android/local.properties
 *.iml
 .idea/
 test/fixtures/*.xmcd
+model/

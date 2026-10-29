@@ -14,7 +14,7 @@ android {
         minSdk 24
         targetSdk 34
         versionCode runNumber
-        versionName "0.4." + runNumber
+        versionName "0.5." + runNumber
     }
 
     signingConfigs {
@@ -48,6 +48,6 @@ android {
 
     // ресурсы страницы (index.html, mathlive.min.js, шрифты) не сжимать — WebView читает их напрямую
     androidResources {
-        noCompress 'html', 'js', 'woff2'
+        noCompress 'html', 'js', 'woff2', 'onnx', 'wasm', 'mjs'
     }
 }

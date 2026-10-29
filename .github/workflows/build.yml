@@ -20,6 +20,14 @@ jobs:
           node-version: 22
           cache: npm
 
+      - name: Модель рукописного ввода (релиз model-onnx)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p model
+          gh release download model-onnx -R ${{ github.repository }} -p encoder.onnx -p decoder_q.onnx -p vocab.txt -D model || echo "модели нет — APK без рукописного ввода"
+          ls -la model
+
       - name: Веб-ядро и тесты
         run: |
           npm ci
@@ -27,6 +35,8 @@ jobs:
           node test/engine.test.js
           node test/solvers.test.js
           node test/roundtrip.test.js
+          node test/wsp.test.js
+          node test/units.test.js
 
       - name: Ресурсы страницы → assets
         run: |
@@ -49,18 +59,18 @@ jobs:
       - name: Имя файла
         run: |
           mkdir -p out
-          cp android/app/build/outputs/apk/release/app-release.apk out/Matlist-0.4.${{ github.run_number }}.apk
+          cp android/app/build/outputs/apk/release/app-release.apk out/Matlist-0.5.${{ github.run_number }}.apk
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Matlist-0.4.${{ github.run_number }}
+          name: Matlist-0.5.${{ github.run_number }}
           path: out/*.apk
 
       - name: Релиз
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v0.4.${{ github.run_number }}
-          name: Матлист 0.4.${{ github.run_number }}
+          tag_name: v0.5.${{ github.run_number }}
+          name: Матлист 0.5.${{ github.run_number }}
           body: |
             Пробная сборка Матлиста для Android (APK подписан тестовым ключом).
             Установка: скачать APK на телефон → открыть → разрешить установку из этого источника.

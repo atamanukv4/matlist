@@ -19,7 +19,10 @@ function build(mode) {
   put('/*WSP_JS*/', rd('src/wsp.js'));
   put('/*ENGINE_JS*/', rd('src/engine.js'));
   put('/*XTPL_JS*/', rd('src/xmcd_template.js'));
+  put('/*MCPLOT_JS*/', rd('src/mcplot.js'));
   put('/*XMCD_JS*/', rd('src/xmcd.js'));
+  put('/*WSPHELP_JS*/', rd('src/wsphelp.js'));
+  put('/*INK_JS*/', rd('src/ink.js'));
   put('/*PLOT_JS*/', rd('src/plot.js'));
   put('/*EXPORT_JS*/', rd('src/export.js'));
   put('/*TEST_JS*/', rd('src/testsheet.js'));
@@ -37,4 +40,13 @@ const A = 'dist/apk-assets'; fs.mkdirSync(A + '/fonts', { recursive: true });
 fs.writeFileSync(A + '/index.html', build('apk'));
 fs.copyFileSync(ML + 'mathlive.min.js', A + '/mathlive.min.js');
 for (const f of fs.readdirSync(ML + 'fonts')) fs.copyFileSync(ML + 'fonts/' + f, A + '/fonts/' + f);
+// рукописный ввод: ONNX Runtime Web (WASM) и модель CoMER (папка model/ — из релиза model-onnx, в git не хранится)
+const ORT = 'node_modules/onnxruntime-web/dist/'; fs.mkdirSync(A + '/ort', { recursive: true });
+for (const f of ['ort.wasm.min.js', 'ort-wasm-simd-threaded.wasm', 'ort-wasm-simd-threaded.mjs']) fs.copyFileSync(ORT + f, A + '/ort/' + f);
+if (fs.existsSync('model/vocab.txt')) {
+  fs.mkdirSync(A + '/model', { recursive: true });
+  const pick = (n) => { const q = 'model/' + n + '_q.onnx', f = 'model/' + n + '.onnx'; return (!process.env.MATLIST_FP32 && fs.existsSync(q) && (n === 'decoder' || !fs.existsSync(f))) ? q : f; }; // декодер — int8 (втрое меньше), энкодер — как есть
+  for (const n of ['encoder', 'decoder']) { const src = pick(n); fs.copyFileSync(src, A + '/model/' + n + '.onnx'); console.log('модель:', src); }
+  fs.copyFileSync('model/vocab.txt', A + '/model/vocab.txt');
+} else console.log('модели рукописного ввода нет (model/vocab.txt) — APK без него');
 console.log('web', fs.statSync('dist/web/index.html').size, 'bytes; apk-assets ready');

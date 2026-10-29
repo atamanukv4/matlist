@@ -27,13 +27,17 @@ function seriesOf(r) {
   const env = r.env || new E.Env(); const ys = E.parseList(r.ys), xs = E.parseList(r.xs);
   if (!ys.length || !xs.length) throw new Error('Заполните оси графика');
   const ctx = new E.Ctx(env); const out = [];
-  const num = v => { try { return E.toNum(v); } catch (e) { return NaN; } };
+  const num = v => { try { return E.toNum(E.unitless ? E.unitless(v) : v); } catch (e) { return NaN; } };
   ys.forEach((y, k) => {
     const x = xs[Math.min(k, xs.length - 1)]; const pts = [];
     const fr = E.freeRanges([x, y], env, new Set(), []);
     if (fr.length) {
       const local = env.child();
-      for (const v of env.get(fr[0]).vals) { local.set(fr[0], v); let px, py; try { px = num(E.evalNode(x, local, ctx)); py = num(E.evalNode(y, local, ctx)); } catch (e) { px = py = NaN; } pts.push([px, py]); }
+      let vals = env.get(fr[0]).vals; const MAXP = 4000;
+      if (vals.length > MAXP) { const st = (vals.length - 1) / (MAXP - 1); const sv = []; for (let i = 0; i < MAXP; i++) sv.push(vals[Math.round(i * st)]); vals = sv; } // 200 000 значений ранжированной переменной — график тот же
+      let fails = 0, lastErr = null;
+      for (const v of vals) { local.set(fr[0], v); let px, py; try { px = num(E.evalNode(x, local, ctx)); py = num(E.evalNode(y, local, ctx)); } catch (e) { px = py = NaN; fails++; lastErr = e; } pts.push([px, py]); }
+      if (fails === vals.length && lastErr) throw lastErr;
     } else if (x.type === 'id' && env.get(x.name) === undefined) { // быстрый график: x не определён — по видимому диапазону
       let [a, b] = xDomain(r); if (r.logx) { a = Math.max(a, 1e-12); b = Math.max(b, a * 10); }
       const N = 700; const local = env.child();
@@ -58,7 +62,21 @@ function seriesOf(r) {
 // ───── оформление ─────
 function style(r, k) {
   const s = (r.st && r.st[k]) || {};
-  return { color: s.color || COLORS[k % COLORS.length], width: s.width || 1.8, dash: s.dash || 'solid', name: s.name };
+  return { color: s.color || COLORS[k % COLORS.length], width: s.width || 1.8, dash: s.dash || 'solid', name: s.name, sym: s.sym || null, sw: s.sw || 1, type: s.type || 'lines' };
+}
+const DASHES = { dash: [7, 5], dot: [2, 4], dadot: [8, 3, 2, 3] };
+// символ точки (как в Mathcad): x + □ ◇ ○ △ и закрашенные ■ ◆ ● ▲
+function symbol(g, kind, X, Y, sz) {
+  const r = sz; g.beginPath();
+  switch (kind) {
+    case 'x': g.moveTo(X - r, Y - r); g.lineTo(X + r, Y + r); g.moveTo(X + r, Y - r); g.lineTo(X - r, Y + r); g.stroke(); return;
+    case '+': g.moveTo(X - r, Y); g.lineTo(X + r, Y); g.moveTo(X, Y - r); g.lineTo(X, Y + r); g.stroke(); return;
+    case 'box': case 'fbox': g.rect(X - r, Y - r, 2 * r, 2 * r); break;
+    case 'dmnd': case 'fdmnd': g.moveTo(X, Y - r * 1.3); g.lineTo(X + r * 1.3, Y); g.lineTo(X, Y + r * 1.3); g.lineTo(X - r * 1.3, Y); g.closePath(); break;
+    case 'tri': case 'ftri': g.moveTo(X, Y - r * 1.3); g.lineTo(X + r * 1.2, Y + r); g.lineTo(X - r * 1.2, Y + r); g.closePath(); break;
+    default: g.arc(X, Y, r, 0, 7);
+  }
+  if (/^f/.test(kind) || kind === 'dot') g.fill(); else g.stroke();
 }
 function defaultNames(r) { try { return E.parseList(r.ys).map((n, k) => texPlain(splitTop(r.ys)[k] || '')); } catch (e) { return []; } }
 function splitTop(t) { const out = []; let d = 0, cur = ''; for (let i = 0; i < t.length; i++) { const c = t[i]; if (c === '{' || c === '(' || c === '[') d++; if (c === '}' || c === ')' || c === ']') d--; if (c === ',' && d === 0) { out.push(cur); cur = ''; } else cur += c; } if (cur) out.push(cur); return out.map(x => x.replace(/\\left\(/g, '(').replace(/\\right\)/g, ')')); }
@@ -93,9 +111,22 @@ function getImg(src, onload) {
 
 // ───── отрисовка ─────
 // opts: { dpr, w, h, trace: {x, y}, onImg } → геометрия для жестов
+// картинка графика, которую сохранил Mathcad (если выражения графика не удалось перенести или посчитать)
+function drawSnap(cv, r, opts, note) {
+  const dpr = opts.dpr || 1, W = opts.w || r.w, H = opts.h || r.h; const g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.fillStyle = '#fff'; g.fillRect(0, 0, W, H);
+  const im = getImg(r.snap, opts.onImg);
+  if (im) { const k = Math.min(W / im.naturalWidth, H / im.naturalHeight); const w = im.naturalWidth * k, h = im.naturalHeight * k; g.drawImage(im, (W - w) / 2, (H - h) / 2, w, h); }
+  if (note) { g.font = '11px system-ui,sans-serif'; const tw = g.measureText(note).width + 10; g.fillStyle = 'rgba(255,248,220,.95)'; g.fillRect(2, H - 18, Math.min(W - 4, tw), 16); g.fillStyle = '#8a5a00'; g.textBaseline = 'middle'; g.textAlign = 'left'; g.fillText(note, 7, H - 10, W - 14); }
+  cv._geo = null; return null;
+}
 function draw(cv, r, opts) {
   opts = opts || {}; const dpr = opts.dpr || 1, W = opts.w || r.w, H = opts.h || r.h;
-  const series = seriesOf(r); const g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  if (r.snap && (r.snapOnly || r.showSnap)) return drawSnap(cv, r, opts, r.snapOnly ? 'картинка из Mathcad' : null);
+  let series;
+  try { series = seriesOf(r); } catch (e) { if (r.snap) return drawSnap(cv, r, opts, 'из файла: ' + e.message); throw e; }
+  if (r.snap && series.every(s => !s.some(([x, y]) => isFinite(x) && isFinite(y)))) return drawSnap(cv, r, opts, 'из файла: нет точек');
+  const g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0);
   const xt = axisTitle(r, 'x'), yt = axisTitle(r, 'y');
   const fs = Math.max(10, Math.min(13, Math.round(W / 30)));
   const L = 48 + (yt ? fs + 6 : 0), R = 16, T = 10, B = 24 + (xt ? fs + 6 : 0);
@@ -110,7 +141,11 @@ function draw(cv, r, opts) {
     if (series.some(s => s.quick)) { const [a, b] = xDomain(r); x0 = tx(r.logx ? Math.max(a, 1e-12) : a); x1 = tx(b); }
     if (isFinite(r.xmin)) x0 = tx(r.xmin); if (isFinite(r.xmax)) x1 = tx(r.xmax);
     if (x0 === x1) { x0 -= 1; x1 += 1; } if (y0 === y1) { y0 -= 1; y1 += 1; }
-    const pad = (y1 - y0) * 0.05; y0 -= pad; y1 += pad;
+    if (r.mcStyle) { // автомасштаб Mathcad: пределы — до ближайших делений сетки
+      const snap = (a, b, n) => { const st = nice(b - a, n); return [Math.floor(a / st + 1e-9) * st, Math.ceil(b / st - 1e-9) * st]; };
+      if (!r.logx && !series.some(s => s.quick)) [x0, x1] = snap(x0, x1, 5);
+      if (!r.logy) [y0, y1] = snap(y0, y1, 5);
+    } else { const pad = (y1 - y0) * 0.05; y0 -= pad; y1 += pad; }
     if (isFinite(r.ymin)) y0 = ty(r.ymin); if (isFinite(r.ymax)) y1 = ty(r.ymax);
   }
   const PW = W - L - R, PH = H - T - B;
@@ -126,9 +161,9 @@ function draw(cv, r, opts) {
   g.font = fs + 'px system-ui,sans-serif'; g.lineWidth = 1;
   const grid = r.grid !== false;
   g.fillStyle = '#4b5563'; g.textAlign = 'center'; g.textBaseline = 'top';
-  for (const v of ticks(x0, x1, r.logx, Math.max(3, Math.round(PW / 70)))) { const X = SX(v); if (grid) { g.strokeStyle = 'rgba(100,110,130,.18)'; g.beginPath(); g.moveTo(X + .5, T); g.lineTo(X + .5, T + PH); g.stroke(); } g.fillText(r.logx ? pow10(v) : tickText(v, r.fx), Math.max(L, Math.min(X, W - 14)), T + PH + 5); }
+  for (const v of ticks(x0, x1, r.logx, Math.max(3, Math.round(PW / 70)))) { const X = SX(v); if (grid) { g.strokeStyle = r.gridColor || 'rgba(100,110,130,.18)'; g.beginPath(); g.moveTo(X + .5, T); g.lineTo(X + .5, T + PH); g.stroke(); } g.fillText(r.logx ? pow10(v) : tickText(v, r.fx), Math.max(L, Math.min(X, W - 14)), T + PH + 5); }
   g.textAlign = 'right'; g.textBaseline = 'middle';
-  for (const v of ticks(y0, y1, r.logy, Math.max(3, Math.round(PH / 45)))) { const Y = SY(v); if (grid) { g.strokeStyle = 'rgba(100,110,130,.18)'; g.beginPath(); g.moveTo(L, Y + .5); g.lineTo(L + PW, Y + .5); g.stroke(); } g.fillText(r.logy ? pow10(v) : tickText(v, r.fy), L - 5, Y); }
+  for (const v of ticks(y0, y1, r.logy, Math.max(3, Math.round(PH / 45)))) { const Y = SY(v); if (grid) { g.strokeStyle = r.gridColor || 'rgba(100,110,130,.18)'; g.beginPath(); g.moveTo(L, Y + .5); g.lineTo(L + PW, Y + .5); g.stroke(); } g.fillText(r.logy ? pow10(v) : tickText(v, r.fy), L - 5, Y); }
   g.strokeStyle = '#98a2b3'; g.strokeRect(L + .5, T + .5, PW - 1, PH - 1);
   if (!r.logy && y0 < 0 && y1 > 0) { g.strokeStyle = '#98a2b3'; const Y = SY(0); g.beginPath(); g.moveTo(L, Y); g.lineTo(L + PW, Y); g.stroke(); }
   if (!r.logx && x0 < 0 && x1 > 0) { g.strokeStyle = '#98a2b3'; const X = SX(0); g.beginPath(); g.moveTo(X, T); g.lineTo(X, T + PH); g.stroke(); }
@@ -141,18 +176,33 @@ function draw(cv, r, opts) {
   const scr = []; // точки в экранных координатах для трассировки
   series.forEach((s, k) => {
     const st = style(r, k); g.strokeStyle = st.color; g.fillStyle = st.color; g.lineWidth = st.width;
-    g.setLineDash(st.dash === 'dash' ? [7, 5] : st.dash === 'dot' ? [2, 4] : []);
-    const pointsOnly = st.dash === 'points' || s.length <= 2; const sp = [];
-    g.beginPath(); let pen = false;
-    for (const [x, y] of s) {
-      if (!okPt(x, y)) { pen = false; continue; }
-      const X = SX(tx(x)), Y = SY(ty(y)); sp.push([X, Y, x, y]);
-      if (Math.abs(Y) > 1e5 || Math.abs(X) > 1e5) { pen = false; continue; }
-      if (pointsOnly) { g.fillRect(X - 2.5, Y - 2.5, 5, 5); continue; }
-      if (pen) g.lineTo(X, Y); else g.moveTo(X, Y); pen = true;
+    const sp = [];
+    for (const [x, y] of s) { if (!okPt(x, y)) { sp.push(null); continue; } sp.push([SX(tx(x)), SY(ty(y)), x, y]); }
+    const pts = sp.filter(p => p && Math.abs(p[0]) < 1e5 && Math.abs(p[1]) < 1e5);
+    const legacyPts = st.dash === 'points' || (s.length <= 2 && st.type === 'lines' && !st.sym);
+    const lineOn = st.type !== 'points' && st.dash !== 'none' && !legacyPts;
+    const Y0 = SY(r.logy ? y0 : Math.max(y0, Math.min(y1, 0)));
+    if (st.type === 'bar' || st.type === 'stem') { // столбцы и «стебли» от оси
+      const bw = Math.max(2, Math.min(24, PW / Math.max(1, pts.length) * 0.6));
+      for (const [X, Y] of pts) { if (st.type === 'bar') { g.globalAlpha = 0.85; g.fillRect(X - bw / 2, Math.min(Y, Y0), bw, Math.abs(Y0 - Y)); g.globalAlpha = 1; } else { g.beginPath(); g.moveTo(X, Y0); g.lineTo(X, Y); g.stroke(); symbol(g, 'o', X, Y, 2.5); } }
+    } else if (lineOn) {
+      g.setLineDash(DASHES[st.dash] || []); g.beginPath(); let pen = false, px = 0, py = 0;
+      for (const p of sp) {
+        if (!p || Math.abs(p[0]) > 1e5 || Math.abs(p[1]) > 1e5) { pen = false; continue; }
+        if (!pen) g.moveTo(p[0], p[1]); else if (st.type === 'step') { g.lineTo(p[0], py); g.lineTo(p[0], p[1]); } else g.lineTo(p[0], p[1]);
+        pen = true; px = p[0]; py = p[1];
+      }
+      g.stroke(); g.setLineDash([]);
     }
-    g.stroke(); g.setLineDash([]); scr.push(sp);
+    if (st.sym) { g.lineWidth = 1; const sz = 2 + st.sw; const step = pts.length > 400 ? Math.ceil(pts.length / 400) : 1; for (let i = 0; i < pts.length; i += step) symbol(g, st.sym, pts[i][0], pts[i][1], sz); g.lineWidth = st.width; }
+    else if (st.type === 'points' || legacyPts) { const sz = st.type === 'points' ? 1 + st.sw * 0.9 : 2.5; for (const [X, Y] of pts) symbol(g, 'dot', X, Y, sz); }
+    scr.push(pts);
   });
+  // маркеры осей (пунктир с подписью значения, как в Mathcad)
+  g.setLineDash([3, 3]); g.strokeStyle = '#c0392b'; g.fillStyle = '#c0392b'; g.lineWidth = 1; g.font = (fs - 2) + 'px system-ui,sans-serif';
+  for (const v of r.ymarks || []) { const Y = SY(ty(v)); if (Y < T || Y > T + PH) continue; g.beginPath(); g.moveTo(L, Y); g.lineTo(L + PW, Y); g.stroke(); g.textAlign = 'right'; g.textBaseline = 'bottom'; g.fillText(tickText(v, r.fy), L + PW - 3, Y - 1); }
+  for (const v of r.xmarks || []) { const X = SX(tx(v)); if (X < L || X > L + PW) continue; g.beginPath(); g.moveTo(X, T); g.lineTo(X, T + PH); g.stroke(); g.textAlign = 'left'; g.textBaseline = 'top'; g.fillText(tickText(v, r.fx), X + 3, T + 2); }
+  g.setLineDash([]);
   g.restore();
   // легенда
   const names = defaultNames(r);
@@ -163,7 +213,10 @@ function draw(cv, r, opts) {
     const lw = Math.min(PW - 10, Math.max(...items.map(it => g.measureText(it.name).width)) + 34), lh = items.length * (fs + 4) + 8;
     const lx = r.legendPos === 'left' ? L + 6 : L + PW - lw - 6, ly = r.legendPos === 'bottom' ? T + PH - lh - 6 : T + 6;
     g.fillStyle = 'rgba(255,255,255,.88)'; g.strokeStyle = '#d0d5dd'; g.fillRect(lx, ly, lw, lh); g.strokeRect(lx + .5, ly + .5, lw - 1, lh - 1);
-    items.forEach((it, k) => { const yy = ly + 4 + (fs + 4) * k + (fs + 4) / 2; g.strokeStyle = it.st.color; g.lineWidth = it.st.width; g.setLineDash(it.st.dash === 'dash' ? [6, 4] : it.st.dash === 'dot' ? [2, 3] : []); g.beginPath(); g.moveTo(lx + 6, yy); g.lineTo(lx + 24, yy); g.stroke(); g.setLineDash([]); g.fillStyle = '#1d2330'; g.fillText(it.name, lx + 29, yy, lw - 33); });
+    items.forEach((it, k) => { const yy = ly + 4 + (fs + 4) * k + (fs + 4) / 2; const st = it.st; g.strokeStyle = st.color; g.fillStyle = st.color; g.lineWidth = st.width;
+      if (st.type !== 'points' && st.dash !== 'none' && st.dash !== 'points') { g.setLineDash(DASHES[st.dash] || []); g.beginPath(); g.moveTo(lx + 6, yy); g.lineTo(lx + 24, yy); g.stroke(); g.setLineDash([]); }
+      if (st.sym) { g.lineWidth = 1; symbol(g, st.sym, lx + 15, yy, 3); } else if (st.type === 'points' || st.dash === 'points') { symbol(g, 'dot', lx + 10, yy, 2.2); symbol(g, 'dot', lx + 15, yy, 2.2); symbol(g, 'dot', lx + 20, yy, 2.2); }
+      g.fillStyle = '#1d2330'; g.fillText(it.name, lx + 29, yy, lw - 33); });
   }
   // трассировка
   if (opts.trace) {

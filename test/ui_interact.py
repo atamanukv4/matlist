@@ -79,12 +79,13 @@ try:
         info = pg.evaluate("({ name: MATLIST_DEBUG.S.name, n: MATLIST_DEBUG.S.regions.length, errs: MATLIST_DEBUG.S.regions.filter(r => r.err).length, res: MATLIST_DEBUG.S.regions.filter(r => r.res).map(r => r.res) })")
         check('открывается .xmcd (ТГМП-314)', info['n'] == 24 and info['errs'] == 0 and len(info['res']) == 3, info)
         pg.screenshot(path=f'{OUT}/i4_xmcd.png')
-        with pg.expect_file_chooser() as fc:
-            pg.click('#bMenu'); pg.click('#mOpen')
-        fc.value.set_files(os.path.join(FIX, 'kes500_part.xmcd')); pg.wait_for_timeout(2500)
-        info2 = pg.evaluate("({ n: MATLIST_DEBUG.S.regions.length, errs: MATLIST_DEBUG.S.regions.filter(r => r.err).length, stored: MATLIST_DEBUG.S.regions.filter(r => r.err && r.stored != null).length })")
-        check('большой лист КЭС открывается', info2['n'] > 200, info2)
-        pg.screenshot(path=f'{OUT}/i5_kes.png')
+        if os.path.exists(os.path.join(FIX, 'kes500_part.xmcd')):  # личный лист пользователя — в репозитории его нет
+            with pg.expect_file_chooser() as fc:
+                pg.click('#bMenu'); pg.click('#mOpen')
+            fc.value.set_files(os.path.join(FIX, 'kes500_part.xmcd')); pg.wait_for_timeout(2500)
+            info2 = pg.evaluate("({ n: MATLIST_DEBUG.S.regions.length, errs: MATLIST_DEBUG.S.regions.filter(r => r.err).length, stored: MATLIST_DEBUG.S.regions.filter(r => r.err && r.stored != null).length })")
+            check('большой лист КЭС открывается', info2['n'] > 200, info2)
+            pg.screenshot(path=f'{OUT}/i5_kes.png')
         check('нет ошибок JS', not logs, logs)
         b.close()
 finally:

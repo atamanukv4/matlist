@@ -22,7 +22,7 @@ if (window.MATLIST_FONTS !== undefined) ML.MathfieldElement.fontsDirectory = win
 const tex2html = (t) => { try { return ML.convertLatexToMarkup(t, { mathstyle: 'textstyle' }); } catch (e) { return '<span>' + t + '</span>'; } };
 
 // ───────── пересчёт листа ─────────
-function sorted() { return S.regions.slice().sort((a, b) => (a.y - b.y) || (a.x - b.x)); }
+function sorted() { return S.regions.slice().sort((a, b) => ((a.y + (a.ady || 0)) - (b.y + (b.ady || 0))) || (a.x - b.x)); } // ady — базовая линия региона Mathcad
 function recompute() {
   const R = new E.SheetRunner(S.origin || 0);
   for (const r of sorted()) {
@@ -35,7 +35,7 @@ function recompute() {
         const out = R.step(st);
         if (out.given) r.role = 'given'; else if (out.constraint) r.role = 'cons';
         else if (st.sym && out.value instanceof E.Fn) r.res = E.toTex(st.rhs); // f(x) := … → — показываем выражение
-        else if (out.value !== undefined && out.value !== null) { r.res = E.fmtValue(out.value, S.fmt); r.tbl = out.value instanceof E.Rng; }
+        else if (out.value !== undefined && out.value !== null) { const v = out.shown !== undefined ? out.shown : out.value; r.res = E.fmtValue(v, S.fmt, out.unitTex); r.tbl = v instanceof E.Rng; }
       } catch (e) {
         // «→» над неопределёнными именами: как символьный вывод Mathcad — выражение остаётся как есть
         if (st && st.sym && st.type === 'eval' && /не определена/.test(e.message || '')) r.res = E.toTex(st.expr);
@@ -45,6 +45,9 @@ function recompute() {
   }
 }
 
+// «x = [кВт]»: единицы вывода показываются после результата, а не в самой формуле
+function unitPart(t) { const m = /=\s*\\left\[(.*)\\right\]\s*$/.exec(t || ''); return m ? m[1] : null; }
+function shownLatex(r) { let t = r.latex || ''; const m = /=\s*\\left\[(.*)\\right\]\s*$/.exec(t); if (m) t = t.slice(0, m.index) + '='; if (r.defEq) t = t.replace('\\coloneq', '='); return t; }
 // ───────── отрисовка ─────────
 const page = $('#page'), wrap = $('#sheetwrap');
 function render() {
@@ -58,7 +61,7 @@ function render() {
   page.style.width = Math.max(S.pageW, maxX + 40) + 'px';
   page.style.height = Math.max(wrap.clientHeight / S.zoom - 24, maxY + 400, S.cursor.y + 300) + 'px';
   page._minH = maxY + 400;
-  page.style.zoom = S.zoom;
+  page.style.zoom = S.zoom; page.classList.toggle('mc', !!S.mc);
   if (active) { const el = page.querySelector('[data-id="' + active.r.id + '"]'); if (el) attachEditor(el, active.r); }
   if (plotEdit) markSel(plotEdit.r);
   save();
@@ -70,15 +73,18 @@ function regionEl(r) {
   if (r.kind === 'math') {
     if (r.err) el.classList.add('err');
     if (r.role) el.classList.add(r.role);
-    const eq = h('span', 'eq'); eq.innerHTML = tex2html(r.latex || '\\placeholder{}'); el.appendChild(eq);
+    const eq = h('span', 'eq'); eq.innerHTML = tex2html(shownLatex(r) || '\\placeholder{}'); el.appendChild(eq);
     if (r.res) { const rs = h('span', 'res' + (r.tbl ? ' tbl' : '')); rs.innerHTML = tex2html(r.res); el.appendChild(rs); }
     if (r.err) {
-      if (r.stored != null && /=\s*$/.test(r.latex)) { const rs = h('span', 'res'); rs.style.color = 'var(--stored)'; rs.innerHTML = tex2html(E.fmtValue(r.stored, S.fmt)); el.appendChild(rs); const m = h('span', 'smsg', 'значение из файла · ' + r.err); el.appendChild(m); }
+      if (r.stored != null && /=\s*$/.test(shownLatex(r))) { const rs = h('span', 'res'); rs.style.color = 'var(--stored)'; const sv = Array.isArray(r.stored) ? new E.Mat(r.stored.length, 1, r.stored) : r.stored; rs.innerHTML = tex2html(E.fmtValue(sv, S.fmt, unitPart(r.latex))); el.appendChild(rs); const m = h('span', 'smsg', 'значение из файла · ' + r.err); el.appendChild(m); }
       else { const m = h('span', 'emsg', r.err); el.appendChild(m); }
     }
   } else if (r.kind === 'text') {
     el.textContent = r.text; if (r.bold) el.classList.add('bold');
-    if (r.wpt) { el.style.width = Math.round(r.wpt * PT) + 'px'; el.style.maxWidth = 'none'; }
+    if (r.wpt) { el.style.width = Math.round(r.wpt * PT * 1.06 + 4) + 'px'; el.style.maxWidth = 'none'; } // запас: шрифт телефона шире Arial Mathcad
+    if (r.oneLine) { el.style.whiteSpace = 'nowrap'; el.style.width = 'auto'; } // в Mathcad это одна строка
+    if (r.lhpt) el.style.lineHeight = Math.round(r.lhpt * PT) + 'px';
+    if (r.ff) el.style.fontFamily = /times|roman|serif/i.test(r.ff) ? '"Times New Roman","Liberation Serif",Tinos,serif' : /courier|mono/i.test(r.ff) ? 'monospace' : 'Arial,"Liberation Sans",Arimo,sans-serif';
     if (r.fpt) el.style.fontSize = Math.round(r.fpt * PT) + 'px';
   } else if (r.kind === 'note') {
     el.textContent = r.text;
@@ -219,7 +225,7 @@ function showBar(el, r) {
   if (r.kind === 'plot') b('⤢', '', () => { applyPlot(); openFull(r); });
   b('Удалить', 'del', () => { S.regions = S.regions.filter(x => x !== r); active = null; targetMf = null; closePlot(); hideBar(); recompute(); render(); });
   bar.classList.remove('pal');
-  placeBar(el.getBoundingClientRect());
+  placeBar(el.getBoundingClientRect(), el);
 }
 // подсветка региона (как Format → Highlight Region в Mathcad)
 const HL = [null, '#fff59d', '#c8f0c4', '#bfe3ff', '#ffd0e0', '#ffe0b2', '#e4d4f7', '#e0e0e0'];
@@ -232,16 +238,25 @@ function palette(r) {
     x.addEventListener('pointerdown', ev => { ev.preventDefault(); ev.stopPropagation(); if (c) r.hl = c; else delete r.hl; bar.classList.remove('pal'); hideBar(); render(); });
     bar.appendChild(x);
   }
-  placeBar(el.getBoundingClientRect());
+  placeBar(el.getBoundingClientRect(), el);
 }
-function placeBar(er) {
-  const wr = wrap.getBoundingClientRect();
-  bar.style.left = Math.max(4, Math.min(er.left - wr.left, wr.width - Math.max(250, bar.offsetWidth) - 4)) + 'px';
-  let top = er.top - wr.top - 40; if (top < 4) top = er.bottom - wr.top + 6;
-  bar.style.left = (parseFloat(bar.style.left) + wrap.scrollLeft) + 'px'; bar.style.top = (top + wrap.scrollTop) + 'px';
+let barRO = null, barEl = null;
+function placeBar(er, el) {
+  // панель ставится над регионом или под ним — там, где она его не закроет (её высота известна только после раскладки кнопок)
+  if (el) { barEl = el; if (window.ResizeObserver) { if (barRO) barRO.disconnect(); barRO = new ResizeObserver(() => { if (bar.style.display !== 'none' && barEl && document.body.contains(barEl)) placeBar(barEl.getBoundingClientRect()); }); barRO.observe(el); } }
+  const wr = wrap.getBoundingClientRect(); const bw = bar.offsetWidth || 250, bh = bar.offsetHeight || 36, gap = 6;
+  const left = Math.max(4, Math.min(er.left - wr.left, wr.width - bw - 4));
+  const above = er.top - wr.top - bh - gap, below = er.bottom - wr.top + gap;
+  const roomAbove = er.top - wr.top, roomBelow = wr.bottom - er.bottom;
+  let top;
+  if (above >= 4) top = above;                                  // сверху есть место
+  else if (below + bh <= wr.height - 4) top = below;            // снизу есть место
+  else if (roomBelow >= roomAbove) top = Math.max(4, wr.height - bh - 4); // регион выше экрана: прижать к краю, где больше места
+  else top = 4;
+  bar.style.left = (left + wrap.scrollLeft) + 'px'; bar.style.top = (top + wrap.scrollTop) + 'px';
 }
 function commitKeep() { if (!active) return; const r = active.r; if (active.mf) r.latex = active.mf.getValue('latex').trim(); active = null; targetMf = null; recompute(); }
-function hideBar() { bar.style.display = 'none'; bar.classList.remove('pal'); }
+function hideBar() { bar.style.display = 'none'; bar.classList.remove('pal'); if (barRO) { barRO.disconnect(); barRO = null; } barEl = null; }
 let clip = null; // скопированный регион
 
 // ───────── редактор графика ─────────
@@ -399,7 +414,9 @@ const T = (l, t, cls) => ({ l, t, cls }); // подпись, вставляем�
 const F = (name, std, cls) => ({ l: name, t: (std ? '\\' + name : '\\operatorname{' + name + '}') + '\\left(#0\\right)', cls: 'fn ' + (cls || '') });
 const A = (l, a, cls) => ({ l, a, cls }); // действие
 // функция WSP: подпись без префикса, аргументы — пустые места
-const W = (name, n) => ({ l: name.replace(/^wsp/, '').replace(/^iap/, 'iap·').replace(/EXPANSIONPTPEFF/, 'EXP'), t: '\\operatorname{' + name + '}\\left(' + ['#0'].concat(Array(n - 1).fill('#?')).join(',') + '\\right)', cls: 'fn sm wsp' });
+const W = (name, n) => ({ fn: name, l: name.replace(/^wsp/, '').replace(/^iap/, 'iap·').replace(/EXPANSIONPTPEFF/, 'EXP'), t: '\\operatorname{' + name + '}\\left(' + ['#0'].concat(Array(n - 1).fill('#?')).join(',') + '\\right)', cls: 'fn sm wsp' });
+// единица измерения: «5 кг» — пробел и прямое начертание, как в Mathcad
+const U = u => ({ l: u, t: /^Δ?°/.test(u) ? '\\,' + u.replace('Δ', '\\Delta ') : '\\,\\mathrm{' + u + '}', cls: 'unit' + (u.length > 3 ? ' sm' : '') });
 const TABS = {
   '123': [
     T('7', '7'), T('8', '8'), T('9', '9'), T('a/b', '\\frac{#0}{#?}', 'op'), T('(', '\\left(#0\\right)', 'op'), T('√', '\\sqrt{#0}', 'op'), T('x²', '#@^{2}', 'op'), T('xⁿ', '#@^{#?}', 'op'),
@@ -431,7 +448,10 @@ const TABS = {
     W('wspTSP', 1), W('wspPST', 1), W('wspHSWT', 1), W('wspHSST', 1), W('wspSSWT', 1), W('wspSSST', 1), W('wspVSWT', 1), W('wspVSST', 1),
     W('wspXPH', 2), W('wspHPTX', 3), W('wspCPPT', 2), W('wspKPT', 2), W('wspDYNVISPT', 2), W('wspTHERMCONDPT', 2), W('wspHEXPANSIONPTPEFF', 4), W('wspTHS', 2),
     W('wspgHGST', 2), W('wspgSGST', 2), W('wspgCPGST', 2), W('wspgTGSH', 2), W('iapHPT', 2), W('iapTPH', 2), W('iapSPT', 2), { l: '"…"', t: '\\text{"#0"}', cls: 'op sm' },
+    A('? все', 'wspHelp', 'op sm'),
   ],
+  'ед.': ['m', 'mm', 'cm', 'km', 'kg', 'gm', 'tonne', 's', 'min', 'hr', 'day', 'K', '°C', 'Δ°C', 'N', 'kN', 'Pa', 'kPa', 'MPa', 'bar', 'atm', 'J', 'kJ', 'MJ', 'W', 'kW', 'MW', 'L', 'mol', 'Hz', 'rad', '°'].map(u => U(u)).concat([
+    { l: 'm²', t: '\\,\\mathrm{m}^{2}', cls: 'unit' }, { l: 'm³', t: '\\,\\mathrm{m}^{3}', cls: 'unit' }, { l: '= [ед]', t: '=\\left[#0\\right]', cls: 'op sm' }, A('→', 'arrowEval', 'op')]),
   'αβ': 'α β γ δ ε ζ η θ ϑ λ μ ν ξ π ρ σ τ φ χ ψ ω Γ Δ Θ Λ Σ Φ Ψ Ω ′'.split(' '),
   'abc': 'q w e r t y u i o p a s d f g h j k l ⇧ z x c v b n m ′ ⌫ ⇧'.split(' '),
   'абв': 'й ц у к е н г ш щ з х ф ы в а п р о л д ж э я ч с м и т ь б ю ё ъ ⇧'.split(' '),
@@ -446,7 +466,12 @@ function buildKeys() {
   for (const k of list) {
     const key = letters ? letterKey(k) : k;
     const b = h('button', key.cls || ''); b.textContent = key.l;
-    b.addEventListener('pointerdown', ev => { ev.preventDefault(); press(key); });
+    if (/\bwsp\b/.test(key.cls || '')) { // функции WSP: короткое нажатие — вставить, удержание — что считает функция и пределы
+      let tm = null, long = false;
+      b.addEventListener('pointerdown', ev => { ev.preventDefault(); long = false; tm = setTimeout(() => { long = true; wspHint(key.fn, b); }, 450); });
+      b.addEventListener('pointerup', ev => { ev.preventDefault(); clearTimeout(tm); if (long) { setTimeout(hideWspHint, 1800); return; } press(key); });
+      b.addEventListener('pointerleave', () => clearTimeout(tm)); b.addEventListener('pointercancel', () => clearTimeout(tm));
+    } else b.addEventListener('pointerdown', ev => { ev.preventDefault(); press(key); });
     keys.appendChild(b);
   }
 }
@@ -460,6 +485,7 @@ function letterKey(ch) {
 function press(key) {
   if (key.a === 'shift') { shift = !shift; buildKeys(); return; }
   if (key.a === 'matrix') { askMatrix(); return; }
+  if (key.a === 'wspHelp') { openWspHelp(); return; }
   if (key.a === 'arrowEval') { const mf = ensureTarget(); insert(mf, '\\to '); if (!plotEdit) commit(true); return; }
   const mf = ensureTarget(); if (!mf) return;
   if (key.a) { mf._typed = true; mf.executeCommand(key.a); if (active && active.mf === mf) { active.r.latex = mf.getValue('latex'); livePreview(); } return; }
@@ -481,6 +507,101 @@ function insert(mf, latex) {
   if (active && active.mf === mf) { active.r.latex = mf.getValue('latex'); livePreview(); }
 }
 
+// ───────── рукописный ввод (модель CoMER, ONNX Runtime в WebView) ─────────
+const ink = { on: false, strokes: [], cur: null, cands: [], sel: 0, timer: null, busy: false, ver: 0, ready: null };
+const inkPanel = $('#inkpanel'), inkCv = $('#inkCv');
+function inkBase() { return location.href.replace(/[^/]*([?#].*)?$/, ''); }
+function loadOrt() {
+  if (ink.ready) return ink.ready;
+  ink.ready = (async () => {
+    const r = await fetch(inkBase() + 'model/vocab.txt').catch(() => null);
+    if (!r || !r.ok) throw new Error('Модель рукописного ввода есть только в приложении для Android');
+    if (!window.ort) await new Promise((res, rej) => { const sc = document.createElement('script'); sc.src = inkBase() + 'ort/ort.wasm.min.js'; sc.onload = res; sc.onerror = () => rej(new Error('не загрузился ONNX Runtime')); document.head.appendChild(sc); });
+    await window.MatInk.load(inkBase());
+  })();
+  ink.ready.catch(() => { ink.ready = null; });
+  return ink.ready;
+}
+function inkSize() { const b = inkCv.getBoundingClientRect(); const d = window.devicePixelRatio || 1; inkCv.width = Math.round(b.width * d); inkCv.height = Math.round(b.height * d); inkDraw(); }
+function inkDraw() {
+  const g = inkCv.getContext('2d'); const d = window.devicePixelRatio || 1; g.setTransform(d, 0, 0, d, 0, 0); g.clearRect(0, 0, inkCv.width, inkCv.height);
+  g.strokeStyle = '#1d2330'; g.fillStyle = '#1d2330'; g.lineWidth = 2.6; g.lineCap = 'round'; g.lineJoin = 'round';
+  for (const s of ink.strokes.concat(ink.cur ? [ink.cur] : [])) { g.beginPath(); if (s.n === 1) { g.arc(s.xs[0], s.ys[0], 1.6, 0, 7); g.fill(); continue; } g.moveTo(s.xs[0], s.ys[0]); for (let i = 1; i < s.n; i++) g.lineTo(s.xs[i], s.ys[i]); g.stroke(); }
+}
+function inkCandsShow(msg) {
+  const box = $('#inkCands'); box.innerHTML = '';
+  if (msg) { box.appendChild(h('span', 'inkhint', msg)); return; }
+  ink.cands.slice(0, 4).forEach((c, k) => { const b = h('button', 'cand' + (k === ink.sel ? ' on' : '')); b.innerHTML = tex2html(c.latex); b.addEventListener('pointerdown', ev => { ev.preventDefault(); ink.sel = k; inkCandsShow(); }); box.appendChild(b); });
+}
+async function inkRecognize() {
+  if (!ink.strokes.length) { ink.cands = []; inkCandsShow('Напишите формулу пальцем или стилусом'); return; }
+  const v = ++ink.ver; inkCandsShow('распознаю…');
+  try {
+    await loadOrt(); if (v !== ink.ver) return;
+    const res = await window.MatInk.recognize(ink.strokes.slice(), inkBase()); if (v !== ink.ver) return;
+    ink.cands = res.map(t => ({ toks: t, latex: window.MatInk.toLatex(t) })).filter(c => c.latex); ink.sel = 0;
+    inkCandsShow(ink.cands.length ? null : 'Не удалось прочитать — напишите крупнее');
+  } catch (e) { if (v === ink.ver) inkCandsShow(e.message || String(e)); }
+}
+function inkSchedule() { clearTimeout(ink.timer); ink.timer = setTimeout(inkRecognize, 650); }
+inkCv.addEventListener('pointerdown', ev => { ev.preventDefault(); try { inkCv.setPointerCapture(ev.pointerId); } catch (e) {} clearTimeout(ink.timer); const b = inkCv.getBoundingClientRect(); ink.cur = new window.MatInk.Stroke(); ink.cur.add(ev.clientX - b.left, ev.clientY - b.top); inkDraw(); });
+inkCv.addEventListener('pointermove', ev => { if (!ink.cur) return; ev.preventDefault(); const b = inkCv.getBoundingClientRect(); const evs = ev.getCoalescedEvents ? ev.getCoalescedEvents() : [ev]; for (const e of evs) ink.cur.add(e.clientX - b.left, e.clientY - b.top); inkDraw(); });
+const inkEnd = ev => { if (!ink.cur) return; ink.strokes.push(ink.cur); ink.cur = null; inkDraw(); inkSchedule(); };
+inkCv.addEventListener('pointerup', inkEnd); inkCv.addEventListener('pointercancel', inkEnd);
+function inkClear() { ink.strokes = []; ink.cur = null; ink.cands = []; ink.ver++; inkDraw(); inkCandsShow('Напишите формулу пальцем или стилусом'); }
+function inkOpen() {
+  if (!window.MatInk) { toast('Модуль рукописного ввода не загружен'); return; }
+  ink.on = true; inkPanel.classList.add('on'); $('#kPen').classList.add('on'); inkSize(); inkClear();
+  loadOrt().catch(e => inkCandsShow(e.message));
+}
+function inkClose() { ink.on = false; inkPanel.classList.remove('on'); $('#kPen').classList.remove('on'); clearTimeout(ink.timer); }
+function inkInsert() {
+  const c = ink.cands[ink.sel]; if (!c) { toast('Пока нечего вставлять'); return; }
+  if (plotEdit) { insert(targetMf || $('#py'), c.latex); inkClear(); return; }
+  if (active && active.mf && document.body.contains(active.mf)) { insert(active.mf, c.latex); }
+  else { commit(false); const r = createAt('math', { latex: c.latex }); S.cursor = { x: S.cursor.x, y: S.cursor.y + 36 }; recompute(); render(); r && toast('Формула вставлена: исправьте её касанием, если нужно'); }
+  inkClear();
+}
+tool('#kPen', () => { if (ink.on) inkClose(); else inkOpen(); });
+$('#inkUndo').addEventListener('click', () => { ink.strokes.pop(); inkDraw(); inkSchedule(); });
+$('#inkClear').addEventListener('click', inkClear);
+$('#inkClose').addEventListener('click', inkClose);
+$('#inkOk').addEventListener('click', inkInsert);
+window.addEventListener('resize', () => { if (ink.on) inkSize(); });
+// ───────── справка WSP ─────────
+const WH = window.MatWSPHelp, WL = window.MatWSP;
+function wspDescHtml(i, withName) {
+  const n = WL && WL.F[i.name] ? WL.F[i.name].length : (i.args ? i.args.length : 0);
+  const args = i.args ? i.args.map(a => a[0]).join(', ') : Array.from({ length: n }, (_, k) => 'a' + (k + 1)).join(', ');
+  const esc = t => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;');
+  return (withName ? '<div class="wn"><b>' + esc(i.name) + '</b>(' + esc(args) + ')' + (i.unit && i.unit !== '—' ? ' → ' + esc(i.unit) : '') + '</div>' : '') +
+    '<div class="wd">' + esc(i.what) + '</div>' + (i.args ? '<div class="wa">' + i.args.map(a => esc(a[0]) + ' — ' + esc(a[1])).join('; ') + '</div>' : '') + (i.range ? '<div class="wr">Пределы: ' + esc(i.range) + '</div>' : '');
+}
+let whint = null;
+function wspHint(name, anchor) {
+  if (!WH) return; if (!whint) { whint = h('div', 'whint'); document.body.appendChild(whint); }
+  whint.innerHTML = wspDescHtml(WH.info(name), true); whint.classList.add('on');
+  const b = anchor.getBoundingClientRect(); whint.style.top = Math.max(8, b.top - whint.offsetHeight - 8) + 'px';
+}
+function hideWspHint() { if (whint) whint.classList.remove('on'); }
+function openWspHelp() {
+  if (!WH || !WL) { toast('Библиотека WSP не загружена'); return; }
+  const all = WH.all(WL.names); const q = $('#wspQ'); q.value = '';
+  const group = i => /^iap/.test(i.name) ? 'iap97' : /^wspg/.test(i.name) ? 'Газы и смеси (wspg)' : /^wsp(SET|GET|LOCAL)/.test(i.name) ? 'Служебные' : 'Вода и водяной пар (wsp)';
+  const draw = () => {
+    const t = q.value.trim().toLowerCase(); const box = $('#wspList'); box.innerHTML = ''; let last = null, n = 0;
+    for (const i of all) {
+      if (t && !(i.name.toLowerCase().includes(t) || i.what.toLowerCase().includes(t))) continue;
+      if (++n > 250) break;
+      const g = group(i); if (g !== last) { box.appendChild(h('div', 'wgrp', g)); last = g; }
+      const it = h('div', 'wi'); it.innerHTML = wspDescHtml(i, true);
+      it.addEventListener('click', () => { const k = WL.F[i.name].length || 1; $('#dWsp').classList.remove('on'); const mf = ensureTarget(); if (mf) insert(mf, '\\operatorname{' + i.name + '}\\left(' + ['#0'].concat(Array(Math.max(0, k - 1)).fill('#?')).join(',') + '\\right)'); });
+      box.appendChild(it);
+    }
+    if (!n) box.appendChild(h('p', 'hint', 'Ничего не найдено'));
+  };
+  q.oninput = draw; draw(); $('#dWsp').classList.add('on');
+}
 // служебная строка
 function tool(id, fn) { const b = $(id); b.addEventListener('pointerdown', ev => { ev.preventDefault(); fn(); }); }
 const nav = (id, cmd) => tool(id, () => { const mf = targetMf; if (mf) { mf.focus(); mf.executeCommand(cmd); if (active && active.mf === mf) { active.r.latex = mf.getValue('latex'); livePreview(); } } });
@@ -645,7 +766,7 @@ function load() {
   return !!(lib.current && loadSheet(lib.current));
 }
 function setSheet(name, regions, pageW, settings) {
-  sheetId = newId(); undoStack = []; redoStack = []; lastSnap = null;
+  S.mc = false; sheetId = newId(); undoStack = []; redoStack = []; lastSnap = null;
   S.fmt = Object.assign({}, E.DEFAULT_FMT); S.origin = 0;
   if (settings) { for (const k of ['decimals', 'expThreshold', 'imagUnit']) if (settings[k] !== undefined) S.fmt[k] = settings[k]; if (settings.origin !== undefined) S.origin = settings.origin; }
   active = null; plotEdit = null; targetMf = null; pp.classList.remove('on'); hideBar();
@@ -813,8 +934,8 @@ $('#bZoomOut').addEventListener('click', () => setZoom(S.zoom / 1.2));
 function openXmcdText(fileName, txt) {
   try {
     const res = X.importXmcd(txt);
-    const regs = res.regions.map(r => Object.assign({}, r, { x: Math.round(r.x * PT), y: Math.round(r.y * PT) }));
-    setSheet(String(fileName || 'Лист').replace(/\.xmcd$/i, ''), regs, 800, res.settings);
+    const regs = res.regions.map(r => Object.assign({}, r, { x: Math.round(r.x * PT), y: Math.round(r.y * PT) }, r.ady ? { ady: Math.round(r.ady * PT) } : {}));
+    setSheet(String(fileName || 'Лист').replace(/\.xmcd$/i, ''), regs, 800, res.settings); S.mc = true; render();
     const errs = S.regions.filter(r => r.err).length;
     toast('Открыто: ' + regs.length + ' регионов' + (errs ? ', с ошибками: ' + errs : '') + (res.warnings.length ? '. ' + res.warnings[0] : ''));
   } catch (e) { toast('Не удалось открыть файл: ' + e.message); }
@@ -822,6 +943,7 @@ function openXmcdText(fileName, txt) {
 window.MATLIST_OPEN_TEXT = openXmcdText; // вызывается Android-обёрткой при «Открыть с помощью»
 // кнопка «Назад» на Android: закрыть верхний открытый элемент; true — закрыли, false — можно выходить
 window.MATLIST_BACK = function () {
+  if (ink.on) { inkClose(); return true; }
   if (full.classList.contains('on')) { $('#fullClose').click(); return true; }
   if (textEl) { textEl.blur(); return true; }
   if (pd && pd.drag) { endDrag(); return true; }
@@ -855,5 +977,5 @@ if (!load()) setSheet('Тестовый лист', window.MATLIST_TEST(), 380);
 window.addEventListener('resize', () => { page.style.height = Math.max(wrap.clientHeight / S.zoom - 24, page._minH || 0, S.cursor.y + 300) + 'px'; });
 $('#loading').remove();
 if (window.MatlistAndroid && window.MatlistAndroid.ready) { try { window.MatlistAndroid.ready(); } catch (e) {} }
-window.MATLIST_DEBUG = { S, saveXmcd, saveDocx, printSheetHtml, zipStore, setKbd, shiftBelow, clip: () => clip, lib: () => lib, sheetUndo, sheetRedo, openLib, recompute, render, setSheet, commit, ensureTarget, insert, press: (tab, label) => { const k = (TABS[tab] || []).find(x => x.l === label); if (k) press(k); }, activate };
+window.MATLIST_DEBUG = { ink, inkOpen, inkClose, inkRecognize, inkInsert, openWspHelp, S, saveXmcd, saveDocx, printSheetHtml, zipStore, setKbd, shiftBelow, clip: () => clip, lib: () => lib, sheetUndo, sheetRedo, openLib, recompute, render, setSheet, commit, ensureTarget, insert, press: (tab, label) => { const k = (TABS[tab] || []).find(x => x.l === label); if (k) press(k); }, activate };
 })();

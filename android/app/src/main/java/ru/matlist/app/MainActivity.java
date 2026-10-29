@@ -118,7 +118,7 @@ public class MainActivity extends Activity {
         String name = path.substring("/assets/".length());
         try {
             InputStream in = getAssets().open(name);
-            return new WebResourceResponse(mime(name), mime(name).startsWith("text") || name.endsWith(".js") ? "utf-8" : null, in);
+            return new WebResourceResponse(mime(name), mime(name).startsWith("text") || mime(name).equals("application/javascript") ? "utf-8" : null, in);
         } catch (Exception e) {
             return new WebResourceResponse("text/plain", "utf-8", 404, "Not Found", null, null);
         }
@@ -126,7 +126,9 @@ public class MainActivity extends Activity {
 
     private static String mime(String n) {
         if (n.endsWith(".html")) return "text/html";
-        if (n.endsWith(".js")) return "application/javascript";
+        if (n.endsWith(".js") || n.endsWith(".mjs")) return "application/javascript";
+        if (n.endsWith(".wasm")) return "application/wasm";
+        if (n.endsWith(".txt")) return "text/plain";
         if (n.endsWith(".css")) return "text/css";
         if (n.endsWith(".woff2")) return "font/woff2";
         if (n.endsWith(".png")) return "image/png";

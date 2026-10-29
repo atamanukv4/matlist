@@ -6,30 +6,36 @@
 // ───────────────────────── Комплексные числа ─────────────────────────
 class C { constructor(re, im) { this.re = re; this.im = im; } }
 const isC = v => v instanceof C;
-const isNum = v => typeof v === 'number' || isC(v);
+const isNum = v => typeof v === 'number' || isC(v) || v instanceof Q;
 const re = v => isC(v) ? v.re : v;
 const im = v => isC(v) ? v.im : 0;
+function nq(a, f) { if (a instanceof Q) throw err('Аргумент ' + f + ' должен быть безразмерным (сейчас ' + dimText(a.d) + ')'); }
 function mk(r, i) { return (i === 0 || Math.abs(i) < 1e-300) ? r : new C(r, i); }
-function cadd(a, b) { return (typeof a === 'number' && typeof b === 'number') ? a + b : mk(re(a) + re(b), im(a) + im(b)); }
-function csub(a, b) { return (typeof a === 'number' && typeof b === 'number') ? a - b : mk(re(a) - re(b), im(a) - im(b)); }
+function cadd(a, b) { if (typeof a === 'number' && typeof b === 'number') return a + b; if (a instanceof Q || b instanceof Q) return qadd(a, b); return mk(re(a) + re(b), im(a) + im(b)); }
+function csub(a, b) { if (typeof a === 'number' && typeof b === 'number') return a - b; if (a instanceof Q || b instanceof Q) return qadd(a, b, true); return mk(re(a) - re(b), im(a) - im(b)); }
 function cmul(a, b) {
   if (typeof a === 'number' && typeof b === 'number') return a * b;
+  if (a instanceof Q || b instanceof Q) return q(cmul(qv(a), qv(b)), dAdd(qd(a), qd(b), 1));
   return mk(re(a) * re(b) - im(a) * im(b), re(a) * im(b) + im(a) * re(b));
 }
 function cdiv(a, b) {
   if (typeof a === 'number' && typeof b === 'number') { if (b === 0) throw err('Деление на ноль'); return a / b; }
+  if (a instanceof Q || b instanceof Q) return q(cdiv(qv(a), qv(b)), dAdd(qd(a), qd(b), -1));
   const d = re(b) * re(b) + im(b) * im(b); if (d === 0) throw err('Деление на ноль');
   return mk((re(a) * re(b) + im(a) * im(b)) / d, (im(a) * re(b) - re(a) * im(b)) / d);
 }
-function cabs(a) { return typeof a === 'number' ? Math.abs(a) : Math.hypot(a.re, a.im); }
-function carg(a) { return Math.atan2(im(a), re(a)); }
-function cexp(a) { if (typeof a === 'number') return Math.exp(a); const e = Math.exp(a.re); return mk(e * Math.cos(a.im), e * Math.sin(a.im)); }
+function cabs(a) { if (typeof a === 'number') return Math.abs(a); if (a instanceof Q) return new Q(cabs(a.v), a.d); return Math.hypot(a.re, a.im); }
+function carg(a) { if (a instanceof Q) a = a.v; return Math.atan2(im(a), re(a)); }
+function cexp(a) { if (typeof a === 'number') return Math.exp(a); nq(a, 'exp'); const e = Math.exp(a.re); return mk(e * Math.cos(a.im), e * Math.sin(a.im)); }
 function cln(a) {
+  nq(a, 'ln');
   if (typeof a === 'number' && a > 0) return Math.log(a);
   if (typeof a === 'number' && a === 0) throw err('ln(0) не определён');
   return mk(Math.log(cabs(a)), carg(a));
 }
 function cpow(a, b) {
+  if (b instanceof Q) throw err('Показатель степени должен быть безразмерным');
+  if (a instanceof Q) { const p = toNum(b, 'Показатель степени величины с единицами'); return q(cpow(a.v, p), dScale(a.d, p)); }
   if (typeof a === 'number' && typeof b === 'number') {
     if (a >= 0 || Number.isInteger(b)) return Math.pow(a, b);
   }
@@ -42,12 +48,13 @@ function cpow(a, b) {
   return cexp(cmul(b, cln(a)));
 }
 function csqrt(a) {
+  if (a instanceof Q) return q(csqrt(a.v), dScale(a.d, 0.5));
   if (typeof a === 'number') return a >= 0 ? Math.sqrt(a) : mk(0, Math.sqrt(-a));
   const r = cabs(a), t = carg(a) / 2, s = Math.sqrt(r); return mk(s * Math.cos(t), s * Math.sin(t));
 }
-function cneg(a) { return typeof a === 'number' ? -a : mk(-a.re, -a.im); }
-function csin(a) { if (typeof a === 'number') return Math.sin(a); return mk(Math.sin(a.re) * Math.cosh(a.im), Math.cos(a.re) * Math.sinh(a.im)); }
-function ccos(a) { if (typeof a === 'number') return Math.cos(a); return mk(Math.cos(a.re) * Math.cosh(a.im), -Math.sin(a.re) * Math.sinh(a.im)); }
+function cneg(a) { if (typeof a === 'number') return -a; if (a instanceof Q) return new Q(cneg(a.v), a.d); return mk(-a.re, -a.im); }
+function csin(a) { if (typeof a === 'number') return Math.sin(a); nq(a, 'sin'); return mk(Math.sin(a.re) * Math.cosh(a.im), Math.cos(a.re) * Math.sinh(a.im)); }
+function ccos(a) { if (typeof a === 'number') return Math.cos(a); nq(a, 'cos'); return mk(Math.cos(a.re) * Math.cosh(a.im), -Math.sin(a.re) * Math.sinh(a.im)); }
 
 // ───────────────────────── Значения ─────────────────────────
 class Mat { // матрица rows×cols, хранение по строкам
@@ -59,6 +66,96 @@ class Rng { constructor(vals) { this.vals = vals; } }
 class Fn { constructor(params, body, env, name) { this.params = params; this.body = body; this.env = env; this.name = name; } }
 class Str { constructor(s) { this.s = s; } }
 class Sol { constructor(names, vals) { this.names = names; this.vals = vals; } } // решение системы: имена + значения
+
+// ───────────────────────── Единицы измерения (как в Mathcad, система СИ) ─────────────────────────
+// Размерность — 7 показателей: [м, кг, с, А, К, моль, кд]. Величина с ненулевой размерностью — Q(v, d);
+// безразмерные значения остаются обычными числами, поэтому весь остальной код работает как раньше.
+class Q { constructor(v, d) { this.v = v; this.d = d; } }
+const D0 = [0, 0, 0, 0, 0, 0, 0];
+const isQ = x => x instanceof Q;
+function q(v, d) { for (let k = 0; k < 7; k++) if (Math.abs(d[k]) > 1e-12) return new Q(v, d); return v; }
+const qv = x => isQ(x) ? x.v : x, qd = x => isQ(x) ? x.d : D0;
+function dimEq(a, b) { for (let k = 0; k < 7; k++) if (Math.abs(a[k] - b[k]) > 1e-9) return false; return true; }
+const dAdd = (a, b, s) => a.map((x, k) => x + s * b[k]);
+const dScale = (a, s) => a.map(x => x * s);
+function isZeroVal(x) { return x === 0; }
+function unitMismatch(a, b) { return err('Несовместимые единицы: ' + dimText(qd(a)) + ' и ' + dimText(qd(b))); }
+function qadd(a, b, sub) {
+  if (isZeroVal(a)) return sub ? qneg(b) : b; if (isZeroVal(b)) return a; // 0 совместим с любой размерностью (Σ, mean …)
+  if (!dimEq(qd(a), qd(b))) throw unitMismatch(a, b);
+  return q(sub ? csub(qv(a), qv(b)) : cadd(qv(a), qv(b)), qd(a));
+}
+function qneg(a) { return isQ(a) ? new Q(cneg(a.v), a.d) : cneg(a); }
+// [имя, множитель в СИ, размерность м кг с А К моль кд]
+const UNIT_DEFS = [
+  ['m', 1, [1]], ['cm', 1e-2, [1]], ['mm', 1e-3, [1]], ['km', 1e3, [1]], ['μm', 1e-6, [1]], ['nm', 1e-9, [1]],
+  ['ft', 0.3048, [1]], ['in', 0.0254, [1]], ['yd', 0.9144, [1]], ['mi', 1609.344, [1]], ['nmi', 1852, [1]], ['Å', 1e-10, [1]], ['mil', 2.54e-5, [1]],
+  ['kg', 1, [0, 1]], ['gm', 1e-3, [0, 1]], ['mg', 1e-6, [0, 1]], ['μg', 1e-9, [0, 1]], ['tonne', 1e3, [0, 1]], ['mton', 1e3, [0, 1]], ['ton', 907.18474, [0, 1]], ['lb', 0.45359237, [0, 1]], ['oz', 0.028349523125, [0, 1]], ['slug', 14.593902937, [0, 1]], ['amu', 1.66053906660e-27, [0, 1]],
+  ['s', 1, [0, 0, 1]], ['ms', 1e-3, [0, 0, 1]], ['μs', 1e-6, [0, 0, 1]], ['ns', 1e-9, [0, 0, 1]], ['ps', 1e-12, [0, 0, 1]], ['min', 60, [0, 0, 1]], ['hr', 3600, [0, 0, 1]], ['day', 86400, [0, 0, 1]], ['wk', 604800, [0, 0, 1]], ['yr', 31557600, [0, 0, 1]],
+  ['A', 1, [0, 0, 0, 1]], ['mA', 1e-3, [0, 0, 0, 1]], ['μA', 1e-6, [0, 0, 0, 1]], ['nA', 1e-9, [0, 0, 0, 1]], ['kA', 1e3, [0, 0, 0, 1]],
+  ['K', 1, [0, 0, 0, 0, 1]], ['R', 5 / 9, [0, 0, 0, 0, 1]], ['Δ°C', 1, [0, 0, 0, 0, 1]], ['Δ°F', 5 / 9, [0, 0, 0, 0, 1]],
+  ['mol', 1, [0, 0, 0, 0, 0, 1]], ['mmol', 1e-3, [0, 0, 0, 0, 0, 1]], ['kmol', 1e3, [0, 0, 0, 0, 0, 1]],
+  ['cd', 1, [0, 0, 0, 0, 0, 0, 1]], ['lm', 1, [0, 0, 0, 0, 0, 0, 1]], ['lx', 1, [-2, 0, 0, 0, 0, 0, 1]],
+  ['hectare', 1e4, [2]], ['ha', 1e4, [2]], ['acre', 4046.8564224, [2]],
+  ['L', 1e-3, [3]], ['l', 1e-3, [3]], ['liter', 1e-3, [3]], ['mL', 1e-6, [3]], ['ml', 1e-6, [3]], ['cc', 1e-6, [3]], ['gal', 3.785411784e-3, [3]], ['qt', 9.46352946e-4, [3]], ['pt', 4.73176473e-4, [3]], ['fl_oz', 2.95735295625e-5, [3]],
+  ['mph', 0.44704, [1, 0, -1]], ['kph', 1 / 3.6, [1, 0, -1]], ['knot', 1852 / 3600, [1, 0, -1]],
+  ['g', 9.80665, [1, 0, -2]],
+  ['N', 1, [1, 1, -2]], ['kN', 1e3, [1, 1, -2]], ['MN', 1e6, [1, 1, -2]], ['mN', 1e-3, [1, 1, -2]], ['dyne', 1e-5, [1, 1, -2]], ['lbf', 4.4482216152605, [1, 1, -2]], ['kgf', 9.80665, [1, 1, -2]], ['kip', 4448.2216152605, [1, 1, -2]], ['tonf', 8896.443230521, [1, 1, -2]],
+  ['Pa', 1, [-1, 1, -2]], ['kPa', 1e3, [-1, 1, -2]], ['MPa', 1e6, [-1, 1, -2]], ['GPa', 1e9, [-1, 1, -2]], ['hPa', 100, [-1, 1, -2]], ['bar', 1e5, [-1, 1, -2]], ['mbar', 100, [-1, 1, -2]], ['atm', 101325, [-1, 1, -2]],
+  ['psi', 6894.757293168, [-1, 1, -2]], ['ksi', 6894757.293168, [-1, 1, -2]], ['torr', 101325 / 760, [-1, 1, -2]], ['mmHg', 133.322387415, [-1, 1, -2]], ['inHg', 3386.388640341, [-1, 1, -2]], ['in_Hg', 3386.388640341, [-1, 1, -2]], ['mm_Hg', 133.322387415, [-1, 1, -2]], ['mmH2O', 9.80665, [-1, 1, -2]], ['ftH2O', 2989.06692, [-1, 1, -2]], ['inH2O', 249.08891, [-1, 1, -2]],
+  ['J', 1, [2, 1, -2]], ['kJ', 1e3, [2, 1, -2]], ['MJ', 1e6, [2, 1, -2]], ['GJ', 1e9, [2, 1, -2]], ['mJ', 1e-3, [2, 1, -2]], ['cal', 4.1868, [2, 1, -2]], ['kcal', 4186.8, [2, 1, -2]], ['Gcal', 4.1868e9, [2, 1, -2]], ['BTU', 1055.05585262, [2, 1, -2]], ['erg', 1e-7, [2, 1, -2]], ['eV', 1.602176634e-19, [2, 1, -2]], ['keV', 1.602176634e-16, [2, 1, -2]], ['MeV', 1.602176634e-13, [2, 1, -2]], ['kWh', 3.6e6, [2, 1, -2]], ['Wh', 3600, [2, 1, -2]], ['MWh', 3.6e9, [2, 1, -2]],
+  ['W', 1, [2, 1, -3]], ['kW', 1e3, [2, 1, -3]], ['MW', 1e6, [2, 1, -3]], ['GW', 1e9, [2, 1, -3]], ['mW', 1e-3, [2, 1, -3]], ['μW', 1e-6, [2, 1, -3]], ['hp', 745.69987158227, [2, 1, -3]],
+  ['Hz', 1, [0, 0, -1]], ['kHz', 1e3, [0, 0, -1]], ['MHz', 1e6, [0, 0, -1]], ['GHz', 1e9, [0, 0, -1]], ['rpm', 1 / 60, [0, 0, -1]], ['Bq', 1, [0, 0, -1]],
+  ['C', 1, [0, 0, 1, 1]], ['mC', 1e-3, [0, 0, 1, 1]], ['μC', 1e-6, [0, 0, 1, 1]],
+  ['V', 1, [2, 1, -3, -1]], ['mV', 1e-3, [2, 1, -3, -1]], ['μV', 1e-6, [2, 1, -3, -1]], ['kV', 1e3, [2, 1, -3, -1]], ['MV', 1e6, [2, 1, -3, -1]],
+  ['Ω', 1, [2, 1, -3, -2]], ['ohm', 1, [2, 1, -3, -2]], ['kΩ', 1e3, [2, 1, -3, -2]], ['MΩ', 1e6, [2, 1, -3, -2]], ['mΩ', 1e-3, [2, 1, -3, -2]],
+  ['S', 1, [-2, -1, 3, 2]], ['mS', 1e-3, [-2, -1, 3, 2]], ['μS', 1e-6, [-2, -1, 3, 2]], ['mho', 1, [-2, -1, 3, 2]],
+  ['F', 1, [-2, -1, 4, 2]], ['mF', 1e-3, [-2, -1, 4, 2]], ['μF', 1e-6, [-2, -1, 4, 2]], ['nF', 1e-9, [-2, -1, 4, 2]], ['pF', 1e-12, [-2, -1, 4, 2]],
+  ['H', 1, [2, 1, -2, -2]], ['mH', 1e-3, [2, 1, -2, -2]], ['μH', 1e-6, [2, 1, -2, -2]], ['nH', 1e-9, [2, 1, -2, -2]],
+  ['Wb', 1, [2, 1, -2, -1]], ['T', 1, [0, 1, -2, -1]], ['mT', 1e-3, [0, 1, -2, -1]], ['μT', 1e-6, [0, 1, -2, -1]], ['gauss', 1e-4, [0, 1, -2, -1]], ['maxwell', 1e-8, [2, 1, -2, -1]],
+  ['Oe', 1000 / (4 * Math.PI), [-1, 0, 0, 1]],
+  ['Gy', 1, [2, 0, -2]], ['Sv', 1, [2, 0, -2]],
+  ['poise', 0.1, [-1, 1, -1]], ['stokes', 1e-4, [2, 0, -1]],
+  
+  ['rad', 1, []], ['deg', Math.PI / 180, []], ['°', Math.PI / 180, []], ['sr', 1, []], ['rev', 2 * Math.PI, []], ['arcmin', Math.PI / 10800, []], ['arcsec', Math.PI / 648000, []], ['%', 0.01, []], ['ppm', 1e-6, []], ['ppb', 1e-9, []]
+];
+const UNITS = new Map();
+for (const [n, f, d] of UNIT_DEFS) { const dd = D0.map((_, k) => d[k] || 0); UNITS.set(n, { name: n, v: q(f, dd), f, d: dd }); }
+// °C и °F — постфиксные функции Mathcad: 20 °C = 293.15 K
+class TempScale { constructor(name, k, off) { this.name = name; this.k = k; this.off = off; } }
+const TEMP = { '°C': new TempScale('°C', 1, 273.15), '°F': new TempScale('°F', 5 / 9, 459.67 * 5 / 9) };
+const DK = [0, 0, 0, 0, 1, 0, 0];
+function tempApply(a, ts) { // x °C → кельвины
+  const one = x => { if (isQ(x)) throw err('Перед ' + ts.name + ' — число без единиц'); return q(cadd(cmul(x, ts.k), ts.off), DK); };
+  if (a instanceof Mat) return new Mat(a.r, a.c, a.a.map(one));
+  return one(a);
+}
+function unitOf(name) { const u = UNITS.get(name); return u ? u.v : undefined; }
+// имена производных единиц, которыми Mathcad показывает результат в СИ
+const SI_SHOW = [['N', [1, 1, -2]], ['J', [2, 1, -2]], ['W', [2, 1, -3]], ['Pa', [-1, 1, -2]], ['C', [0, 0, 1, 1]], ['V', [2, 1, -3, -1]], ['Ω', [2, 1, -3, -2]], ['F', [-2, -1, 4, 2]], ['S', [-2, -1, 3, 2]], ['H', [2, 1, -2, -2]], ['Wb', [2, 1, -2, -1]], ['T', [0, 1, -2, -1]], ['Hz', [0, 0, -1]]].map(([n, d]) => [n, D0.map((_, k) => d[k] || 0)]);
+const BASE_NAMES = ['m', 'kg', 's', 'A', 'K', 'mol', 'cd'], SHOW_ORDER = [1, 0, 2, 3, 4, 5, 6];
+function powTex(p) { const r = Math.round(p * 1000) / 1000; return r === 1 ? '' : '^{' + r + '}'; }
+function dimTex(d) {
+  for (const [n, sd] of SI_SHOW) if (dimEq(d, sd)) return '\\mathrm{' + n + '}';
+  const num = [], den = [];
+  for (const k of SHOW_ORDER) { const p = d[k]; if (Math.abs(p) < 1e-12) continue; (p > 0 ? num : den).push('\\mathrm{' + BASE_NAMES[k] + '}' + powTex(Math.abs(p))); }
+  const n = num.join('\\cdot ') || '1';
+  return den.length ? '\\frac{' + n + '}{' + den.join('\\cdot ') + '}' : n;
+}
+function dimText(d) { const t = []; d.forEach((p, k) => { if (Math.abs(p) > 1e-12) t.push(BASE_NAMES[k] + (p === 1 ? '' : '^' + (Math.round(p * 1000) / 1000))); }); return t.join('·') || 'безразмерная'; }
+// значение без единиц (в СИ) — для графиков, таблиц, внешних функций
+function unitless(v) { if (isQ(v)) return v.v; if (v instanceof Mat) return new Mat(v.r, v.c, v.a.map(unitless)); return v; }
+// показ значения в заданных единицах (unitOverride Mathcad): { value, unitTex }
+function inUnits(v, u, uTex) {
+  if (u instanceof TempScale) {
+    const one = x => { if (!dimEq(qd(x), DK)) throw err('Результат — не температура, ' + u.name + ' не подходит'); return (toNum(qv(x)) - u.off) / u.k; };
+    return { value: v instanceof Mat ? new Mat(v.r, v.c, v.a.map(one)) : one(v), unitTex: uTex };
+  }
+  const ud = qd(u), uv = qv(u); let rest = null; // как Mathcad: несовпавшая часть размерности дописывается после выбранных единиц
+  const one = x => { if (!dimEq(qd(x), ud)) rest = dAdd(qd(x), ud, -1); return cdiv(qv(x), uv); };
+  const value = v instanceof Mat ? new Mat(v.r, v.c, v.a.map(one)) : one(v);
+  return { value, unitTex: rest ? uTex + '\\cdot ' + dimTex(rest) : uTex };
+}
 
 class MathErr extends Error { constructor(msg, node) { super(msg); this.node = node; } }
 function err(m, n) { return new MathErr(m, n); }
@@ -176,18 +273,32 @@ class Parser {
       if (x.k === 'ch' && (x.v === '}' || x.v === ')' || x.v === ']')) d--;
       if (d === 0 && x.k === 'op' && (x.v === ':=' || x.v === '≡')) { defAt = i; defOp = x.v; break; }
     }
-    let showAfter = false, sym = false;
+    let showAfter = false, sym = false, unit = null;
+    { // «… = [ед]» — показать результат в заданных единицах (unitOverride Mathcad)
+      const L = this.t.length, lt = this.t[L - 1];
+      if (lt && lt.k === 'ch' && lt.v === ']') {
+        let dd = 0, j = L - 1;
+        for (; j >= 0; j--) { const y = this.t[j]; if (y.k === 'ch' && y.v === ']') dd++; if (y.k === 'ch' && y.v === '[') { dd--; if (!dd) break; } }
+        const eqT = this.t[j - 1];
+        if (j > 0 && eqT && eqT.k === 'ch' && eqT.v === '=') {
+          const up = this.sub(this.t.slice(j + 1, L - 1));
+          if (!up.eof()) { unit = up.parseExpr(); if (!up.eof()) throw err('Не удалось разобрать единицы: ' + up.restText()); }
+          this.t = this.t.slice(0, j); // оставить «=»
+        }
+      }
+    }
     const last = this.t[this.t.length - 1];
     if (last && last.k === 'ch' && last.v === '=') { this.t.pop(); showAfter = true; }
     else if (last && last.k === 'op' && last.v === '→') { this.t.pop(); showAfter = true; sym = true; } // «→» Mathcad: значение показывается и наследуется
     if (defAt >= 0) {
       const lp = this.sub(this.t.slice(0, defAt)); const lhs = lp.parseExpr(); if (!lp.eof()) throw err('Неверная левая часть определения');
       const rp = this.sub(this.t.slice(defAt + 1)); const rhs = rp.parseRangeOrExpr(); if (!rp.eof()) throw err('Не удалось разобрать: ' + rp.restText());
-      const st = { type: 'define', global: defOp === '≡', lhs, rhs, show: showAfter }; if (sym) st.sym = true; return st;
+      const st = { type: 'define', global: defOp === '≡', lhs, rhs, show: showAfter }; if (sym) st.sym = true; if (unit && showAfter) st.unit = unit; return st;
     }
     const e = this.parseExpr(); if (!this.eof()) throw err('Не удалось разобрать: ' + this.restText());
     if (sym) return { type: 'eval', expr: e, sym: true };
-    return showAfter ? { type: 'eval', expr: e } : { type: 'expr', expr: e };
+    if (showAfter) { const st = { type: 'eval', expr: e }; if (unit) st.unit = unit; return st; }
+    return { type: 'expr', expr: e };
   }
   restText() { return this.t.slice(this.p).map(x => x.v).join(' ').slice(0, 30); }
   // a..b  или  a, b..c
@@ -269,6 +380,7 @@ class Parser {
         this.next(); const toks = this.groupTokens();
         const lit = toks.length && toks[0].k === 'cmd' && (toks[0].v === 'mathrm' || toks[0].v === 'text');
         const raw = this.groupRaw(toks);
+        if (e.type === 'id' && !toks.length) { e = { type: 'id', name: e.name + '_' }; continue; } // x_{\,} — имя с пустым индексом (Mathcad)
         if (lit || e.type !== 'id') {
           if (e.type === 'id') { e = { type: 'id', name: e.name + '_' + raw }; continue; }
         }
@@ -278,11 +390,17 @@ class Parser {
       if (this.is('!')) { this.next(); e = { type: 'fact', e }; continue; }
       if (this.is("'")) { this.next(); if (e.type === 'id') e = { type: 'id', name: e.name + "'" }; continue; }
       if (this.is('%')) { this.next(); e = { type: 'bin', op: '·', l: e, r: { type: 'num', v: 0.01 } }; continue; }
-      if (this.is('°')) { this.next(); e = { type: 'bin', op: '·', l: e, r: { type: 'num', v: Math.PI / 180 } }; continue; }
+      if (this.is('°')) { this.next(); e = { type: 'bin', op: '·', l: e, r: { type: 'id', name: this.degName() } }; continue; }
       if (this.is('(') && (e.type === 'id')) { this.next(); const args = this.parseArgs(')'); e = { type: 'call', f: e.name, args }; continue; }
       break;
     }
     return e;
+  }
+  degName() { // после «°»: °C, °F или просто градус
+    const x = this.peek();
+    if (x && x.k === 'ch' && (x.v === 'C' || x.v === 'F')) { this.next(); return '°' + x.v; }
+    if (x && x.k === 'cmd' && (x.v === 'mathrm' || x.v === 'text')) { const save = this.p; this.next(); const t = this.groupTokens(); const r = this.groupRaw(t).replace(/\s/g, ''); if (r === 'C' || r === 'F') return '°' + r; this.p = save; }
+    return '°';
   }
   parseArgs(close) {
     const args = [];
@@ -311,6 +429,8 @@ class Parser {
       if (x.v === '{') { this.p--; const toks = this.groupTokens(); const p = this.sub(toks); const e = p.parseRangeOrExpr(); if (!p.eof()) throw err('Не удалось разобрать: ' + p.restText()); return e; }
       if (x.v === '|') { const e = this.parseExpr(); this.expect('|'); return { type: 'abs', e }; }
       if (x.v === '∞') return { type: 'num', v: 1e307 };
+      if (x.v === '°') return { type: 'id', name: this.degName() };
+      if (x.v === 'Δ' && this.is('°')) { this.next(); return { type: 'id', name: 'Δ' + this.degName() }; }
       if (x.v === 'ⅆ') throw err('Неожиданный дифференциал d');
       if (/^[A-Za-zА-Яа-яЁёα-ωΑ-Ωϑϱς]$/.test(x.v)) return { type: 'id', name: this.readIdent(x.v) };
       if (x.v === '"') { let s = ''; while (!this.eof() && !this.is('"')) s += this.next().v; this.expect('"'); return { type: 'str', v: s }; }
@@ -336,7 +456,9 @@ class Parser {
         if ((c === 'text' || c === 'textrm') && /[:;%{}]/.test(raw)) return { type: 'str', v: raw.trim() };
         if (!name) throw err('Пустое имя');
         if (name === 'd' && this.peek() && (this.peek().k === 'ch')) { /* «d x» вне интеграла */ }
-        return { type: 'id', name: this.readIdent(name) };
+        const nm = this.readIdent(name); const idn = { type: 'id', name: nm };
+        if (c === 'mathrm' && (UNITS.has(nm) || TEMP[nm])) idn.u = true;
+        return idn;
       }
       if (c === 'pi') return { type: 'id', name: 'π' };
       if (FUNC_CMDS.has(c)) {
@@ -467,13 +589,15 @@ class Env {
   child() { return new Env(this); }
 }
 
-const CONSTS = { 'π': Math.PI, e: Math.E, i: new C(0, 1), j: new C(0, 1), g: 9.80665, ORIGIN: 0, TOL: 1e-3, CTOL: 1e-3 };
+const CONSTS = { 'π': Math.PI, e: Math.E, i: new C(0, 1), j: new C(0, 1), ORIGIN: 0, TOL: 1e-3, CTOL: 1e-3 };
 
 function toNum(v, what) {
   if (typeof v === 'number') return v;
   if (isC(v)) { if (Math.abs(v.im) < 1e-12 * Math.max(1, Math.abs(v.re))) return v.re; throw err((what || 'Значение') + ' должно быть вещественным'); }
   if (v instanceof Mat) { if (v.r === 1 && v.c === 1) return toNum(v.a[0], what); throw err((what || 'Значение') + ' должно быть скаляром, а не матрицей'); }
   if (v instanceof Rng) throw err('Ранжированная переменная здесь не допускается');
+  if (v instanceof Q) throw err((what || 'Значение') + ' должно быть безразмерным (сейчас ' + dimText(v.d) + ')');
+  if (v instanceof TempScale) throw err(v.name + ' пишется после числа: 20 ' + v.name);
   throw err((what || 'Значение') + ' должно быть числом');
 }
 function toInt(v, what) { const x = toNum(v, what); if (!Number.isInteger(Math.round(x * 1e9) / 1e9)) throw err((what || 'Индекс') + ' должен быть целым'); return Math.round(x); }
@@ -487,8 +611,8 @@ function elementwise(a, b, f, name) {
     if (a.r !== b.r || a.c !== b.c) throw err('Размеры матриц не совпадают (' + a.r + '×' + a.c + ' и ' + b.r + '×' + b.c + ')');
     return new Mat(a.r, a.c, a.a.map((x, k) => f(x, b.a[k])));
   }
-  if (a instanceof Mat) { if (name === '+' || name === '-') throw err('Нельзя складывать матрицу и скаляр'); return new Mat(a.r, a.c, a.a.map(x => f(x, b))); }
-  if (b instanceof Mat) { if (name === '+' || name === '-') throw err('Нельзя складывать матрицу и скаляр'); return new Mat(b.r, b.c, b.a.map(x => f(a, x))); }
+  if (a instanceof Mat) return new Mat(a.r, a.c, a.a.map(x => f(x, b))); // как в Mathcad: скаляр прибавляется к каждому элементу
+  if (b instanceof Mat) return new Mat(b.r, b.c, b.a.map(x => f(a, x)));
   return f(a, b);
 }
 function matmul(a, b) {
@@ -663,7 +787,8 @@ function splineAt(vs, vx, vy, x) {
 
 const BUILTIN_NAMES = new Set();
 function realFn(f) { return (args) => { if (args.length !== 1) throw err('Ожидался один аргумент'); return mapScalar(args[0], x => f(toNum(x))); }; }
-function mapScalar(v, f) { if (v instanceof Mat) return new Mat(v.r, v.c, v.a.map(f)); return f(v); }
+function mapScalarU(v, f) { if (v instanceof Mat) return new Mat(v.r, v.c, v.a.map(f)); return f(v); }
+function mapScalar(v, f) { const g = x => { if (x instanceof Q) throw err('Нужна безразмерная величина (сейчас ' + dimText(x.d) + ')'); return f(x); }; if (v instanceof Mat) return new Mat(v.r, v.c, v.a.map(g)); return g(v); }
 const B = {}; // встроенные функции: (args, ctx) => value
 function def(names, fn, lazy) { for (const n of names.split(' ')) { B[n] = { fn, lazy: !!lazy }; BUILTIN_NAMES.add(n); } }
 def('sin', a => mapScalar(a[0], csin));
@@ -681,20 +806,21 @@ def('asinh', realFn(Math.asinh)); def('acosh', realFn(Math.acosh)); def('atanh',
 def('exp', a => mapScalar(a[0], cexp));
 def('ln', a => mapScalar(a[0], cln));
 def('log', a => a.length === 2 ? cdiv(cln(a[0]), cln(a[1])) : mapScalar(a[0], x => cdiv(cln(x), Math.LN10)));
-def('sqrt', a => mapScalar(a[0], csqrt));
-def('abs', a => mapScalar(a[0], cabs));
+def('sqrt', a => mapScalarU(a[0], csqrt));
+def('abs', a => mapScalarU(a[0], cabs));
 def('floor', realFn(Math.floor)); def('ceil', realFn(Math.ceil)); def('trunc', realFn(Math.trunc));
 def('round', a => { const x = toNum(a[0]); const n = a.length > 1 ? toInt(a[1]) : 0; const k = Math.pow(10, n); return Math.round(x * k) / k; });
 def('mod', a => { const x = toNum(a[0]), y = toNum(a[1]); if (y === 0) throw err('mod: деление на ноль'); return x - y * Math.trunc(x / y); });
 def('sign', realFn(Math.sign)); def('signum', a => { const v = a[0]; const r = cabs(v); return r === 0 ? 0 : cdiv(v, r); });
-def('Re', a => mapScalar(a[0], re)); def('Im', a => mapScalar(a[0], im)); def('arg', a => mapScalar(a[0], carg));
+def('Re', a => mapScalarU(a[0], x => x instanceof Q ? q(re(x.v), x.d) : re(x))); def('Im', a => mapScalarU(a[0], x => x instanceof Q ? q(im(x.v), x.d) : im(x))); def('arg', a => mapScalar(a[0], carg));
 def('csgn', a => { const v = a[0]; return re(v) > 0 || (re(v) === 0 && im(v) >= 0) ? 1 : -1; });
 def('Φ', a => mapScalar(a[0], x => toNum(x) >= 0 ? 1 : 0)); def('Heaviside', B['Φ'].fn);
 def('δ', a => (toNum(a[0]) === toNum(a[1]) ? 1 : 0));
 def('if', (a, ctx) => { if (a.length !== 3) throw err('if(условие, если да, если нет)'); const c = toNum(ctx.ev(a[0])); return ctx.ev(c !== 0 ? a[1] : a[2]); }, true);
 function flat(args) { const out = []; for (const v of args) { if (v instanceof Mat) out.push(...v.a); else if (v instanceof Rng) out.push(...v.vals); else out.push(v); } return out; }
-def('max', a => { const v = flat(a).map(x => toNum(x)); if (!v.length) throw err('max: нет значений'); return Math.max(...v); });
-def('min', a => { const v = flat(a).map(x => toNum(x)); if (!v.length) throw err('min: нет значений'); return Math.min(...v); });
+function sameDims(v, f) { const d = qd(v[0]); if (!v.every(x => dimEq(qd(x), d))) throw err(f + ': значения с разными единицами'); return d; }
+def('max', a => { const v = flat(a); if (!v.length) throw err('max: нет значений'); const d = sameDims(v, 'max'); return q(Math.max(...v.map(x => toNum(qv(x)))), d); });
+def('min', a => { const v = flat(a); if (!v.length) throw err('min: нет значений'); const d = sameDims(v, 'min'); return q(Math.min(...v.map(x => toNum(qv(x)))), d); });
 def('mean', a => { const v = flat(a); return cdiv(v.reduce(cadd, 0), v.length); });
 def('median', a => { const v = flat(a).map(x => toNum(x)).sort((p, q) => p - q); const n = v.length; return n % 2 ? v[(n - 1) / 2] : (v[n / 2 - 1] + v[n / 2]) / 2; });
 def('var', a => { const v = flat(a).map(x => toNum(x)); const m = v.reduce((s, x) => s + x, 0) / v.length; return v.reduce((s, x) => s + (x - m) ** 2, 0) / v.length; });
@@ -722,7 +848,18 @@ def('csort', a => { const m = asMat(a[0]); const j = toInt(a[1]); const idx = [.
 def('lsolve', a => { const A = asMat(a[0]), b = asMat(a[1]); if (b.r !== A.r) throw err('lsolve: размеры не согласованы'); return luSolve(A, b); });
 def('linterp', a => { const vx = vecOf(a[0]).map(x => toNum(x)), vy = vecOf(a[1]).map(x => toNum(x)); return mapScalar(a[2], xv => { const x = toNum(xv); let k = 0; if (x <= vx[0]) k = 0; else if (x >= vx[vx.length - 1]) k = vx.length - 2; else while (k < vx.length - 2 && vx[k + 1] < x) k++; return vy[k] + (vy[k + 1] - vy[k]) * (x - vx[k]) / (vx[k + 1] - vx[k]); }); });
 def('cspline lspline pspline', a => colVec(cspline(vecOf(a[0]).map(x => toNum(x)), vecOf(a[1]).map(x => toNum(x)))));
-def('interp', a => { const vs = vecOf(a[0]).map(x => toNum(x)), vx = vecOf(a[1]).map(x => toNum(x)), vy = vecOf(a[2]).map(x => toNum(x)); return mapScalar(a[3], x => splineAt(vs, vx, vy, toNum(x))); });
+def('interp', a => { const vs = vecOf(a[0]).map(x => toNum(x)), vx = vecOf(a[1]).map(x => toNum(x)), vy = vecOf(a[2]).map(x => toNum(x));
+  if (vs.length >= 4 && vs[0] === 3 && vs[1] === 3 && vs.length === vs[2] + 4) { const c = vs.slice(3); return mapScalar(a[3], x => { const t = toNum(x); let r = 0; for (let k = c.length - 1; k >= 0; k--) r = r * t + c[k]; return r; }); } // результат regress
+  return mapScalar(a[3], x => splineAt(vs, vx, vy, toNum(x))); });
+function polyfit(vx, vy, k) { // МНК: коэффициенты по возрастанию степени
+  const n = k + 1; const A = new Mat(n, n), b = new Mat(n, 1);
+  for (let i = 0; i < n; i++) { for (let j = 0; j < n; j++) { let s = 0; for (let p = 0; p < vx.length; p++) s += Math.pow(vx[p], i + j); A.set(i, j, s); } let s = 0; for (let p = 0; p < vx.length; p++) s += vy[p] * Math.pow(vx[p], i); b.a[i] = s; }
+  return luSolve(A, b).a;
+}
+def('regress', a => { const vx = vecOf(a[0]).map(x => toNum(x)), vy = vecOf(a[1]).map(x => toNum(x)), k = toInt(a[2]); if (vx.length !== vy.length) throw err('regress: векторы разной длины'); if (k < 1 || k >= vx.length) throw err('regress: степень от 1 до ' + (vx.length - 1)); return colVec([3, 3, k].concat(polyfit(vx, vy, k))); });
+def('slope', a => polyfit(vecOf(a[0]).map(x => toNum(x)), vecOf(a[1]).map(x => toNum(x)), 1)[1]);
+def('intercept', a => polyfit(vecOf(a[0]).map(x => toNum(x)), vecOf(a[1]).map(x => toNum(x)), 1)[0]);
+def('corr', a => { const x = vecOf(a[0]).map(v => toNum(v)), y = vecOf(a[1]).map(v => toNum(v)); const n = x.length, mx = x.reduce((s, v) => s + v, 0) / n, my = y.reduce((s, v) => s + v, 0) / n; let sxy = 0, sxx = 0, syy = 0; for (let i = 0; i < n; i++) { sxy += (x[i] - mx) * (y[i] - my); sxx += (x[i] - mx) ** 2; syy += (y[i] - my) ** 2; } return sxy / Math.sqrt(sxx * syy); });
 def('polyroots', a => polyroots(vecOf(a[0])));
 def('eigenvals', a => { const m = asMat(a[0]); if (m.r !== m.c) throw err('eigenvals: матрица должна быть квадратной'); // через характеристический многочлен (Фаддеев–Леверье) для n ≤ 10
   const n = m.r; if (n > 10) throw err('eigenvals: пока до 10×10'); let Mk = identity(n), c = [1]; const coefs = new Array(n + 1).fill(0); coefs[n] = 1; let AM;
@@ -949,10 +1086,18 @@ class Ctx {
   }
 }
 
+const ctxPure = { on: false }; // при выводе в заданных единицах имена единиц не переопределяются
+function keyOf(n) { return n.u ? n.name + '#u' : n.name; }
 function lookup(name, env, node) {
   const v = env.get(name);
+  if (node && node.u) { // \mathrm{m} из файла Mathcad — единица (или её переопределение в листе), а не переменная m
+    if (!(ctxPure && ctxPure.on) && env.has(name + '#u')) return env.get(name + '#u');
+    const u0 = UNITS.get(name); if (u0) return u0.v; if (TEMP[name]) return TEMP[name];
+  }
   if (v !== undefined) return v;
   if (name in CONSTS) return CONSTS[name];
+  const u = UNITS.get(name); if (u) return u.v;
+  if (TEMP[name]) return TEMP[name];
   if (B[name]) throw err('«' + name + '» — функция, нужны аргументы', node);
   throw err('Переменная «' + prettyName(name) + '» не определена', node);
 }
@@ -978,7 +1123,7 @@ function evalNode(n, env, ctx) {
       if (e instanceof Mat) throw err('Показатель степени должен быть скаляром');
       return cpow(b, e);
     }
-    case 'sqrt': return mapScalar(evalNode(n.e, env, ctx), csqrt);
+    case 'sqrt': return mapScalarU(evalNode(n.e, env, ctx), csqrt);
     case 'root': { const k = toNum(evalNode(n.n, env, ctx)); const x = evalNode(n.e, env, ctx); return mapScalar(x, v => (typeof v === 'number' && v < 0 && Number.isInteger(k) && k % 2 === 1) ? -Math.pow(-v, 1 / k) : cpow(v, 1 / k)); }
     case 'abs': { const v = evalNode(n.e, env, ctx); if (v instanceof Mat) { if (v.r === v.c && v.r > 1) return det(v); return Math.sqrt(v.a.reduce((s, x) => s + cabs(x) ** 2, 0)); } if (v instanceof Str) return v.s.length; return cabs(v); }
     case 'fact': { const v = toNum(evalNode(n.e, env, ctx)); return factorial(v); }
@@ -1030,23 +1175,29 @@ function mulAny(a, b) {
   if (a instanceof Mat && b instanceof Mat) return matmul(a, b);
   return elementwise(a, b, cmul, '·');
 }
-function chk(v) { if (v instanceof Rng) throw err('Ранжированная переменная здесь не допускается'); if (v instanceof Fn) throw err('Функцию нужно вызвать с аргументами'); if (v instanceof Str) throw err('Арифметика со строкой'); return v; }
+function chk(v) { if (v instanceof TempScale) throw err(v.name + ' пишется после числа: 20 ' + v.name); if (v instanceof Rng) throw err('Ранжированная переменная здесь не допускается'); if (v instanceof Fn) throw err('Функцию нужно вызвать с аргументами'); if (v instanceof Str) throw err('Арифметика со строкой'); return v; }
+function cmpVals(a, b) { // сравнение с учётом единиц (0 сравним с любой величиной)
+  if (a instanceof Q || b instanceof Q) { if (!isZeroVal(a) && !isZeroVal(b) && !dimEq(qd(a), qd(b))) throw unitMismatch(a, b); return toNum(qv(a)) - toNum(qv(b)); }
+  return toNum(a) - toNum(b);
+}
 function evalBin(n, env, ctx) {
   const op = n.op;
   if (op === '∧') return toNum(evalNode(n.l, env, ctx)) !== 0 && toNum(evalNode(n.r, env, ctx)) !== 0 ? 1 : 0;
   if (op === '∨') return toNum(evalNode(n.l, env, ctx)) !== 0 || toNum(evalNode(n.r, env, ctx)) !== 0 ? 1 : 0;
   // неявное умножение «имя(…)» уже разобрано как вызов
   const a = evalNode(n.l, env, ctx), b = evalNode(n.r, env, ctx);
+  if (op === '·' && b instanceof TempScale) return tempApply(chk(a), b); // 20 °C
+  if (op === '·' && a instanceof TempScale) return tempApply(chk(b), a);
   switch (op) {
     case '+': if (a instanceof Str && b instanceof Str) return new Str(a.s + b.s); return addAny(a, b);
     case '-': return elementwise(chk(a), chk(b), csub, '-');
     case '±': return elementwise(chk(a), chk(b), cadd, '+');
     case '·': return mulAny(a, b);
-    case '/': { if (b instanceof Mat) { if (b.r === b.c && a instanceof Mat) return matmul(a, luSolve(b, identity(b.r))); throw err('Деление на матрицу'); } return elementwise(chk(a), chk(b), cdiv, '/'); }
-    case '<': return toNum(a) < toNum(b) ? 1 : 0;
-    case '>': return toNum(a) > toNum(b) ? 1 : 0;
-    case '≤': return toNum(a) <= toNum(b) ? 1 : 0;
-    case '≥': return toNum(a) >= toNum(b) ? 1 : 0;
+    case '/': { if (b instanceof Mat) { if (b.r === b.c && b.r > 1 && a instanceof Mat) return matmul(a, luSolve(b, identity(b.r))); if (b.c === 1 || b.r === 1) return elementwise(chk(a), b, cdiv, '/'); throw err('Деление на матрицу'); } return elementwise(chk(a), chk(b), cdiv, '/'); }
+    case '<': return cmpVals(a, b) < 0 ? 1 : 0;
+    case '>': return cmpVals(a, b) > 0 ? 1 : 0;
+    case '≤': return cmpVals(a, b) <= 0 ? 1 : 0;
+    case '≥': return cmpVals(a, b) >= 0 ? 1 : 0;
     case '≠': return cabs(csub(toScalar(a), toScalar(b))) !== 0 ? 1 : 0;
     case '==': return cabs(csub(toScalar(a), toScalar(b))) === 0 ? 1 : 0;
     case '⊕': return (toNum(a) !== 0) !== (toNum(b) !== 0) ? 1 : 0;
@@ -1123,7 +1274,7 @@ function evalArg(a, env, ctx) {
 function freeRanges(n, env, bound, out) {
   if (!n || typeof n !== 'object') return out;
   if (Array.isArray(n)) { n.forEach(x => freeRanges(x, env, bound, out)); return out; }
-  if (n.type === 'id' && !bound.has(n.name) && env.get(n.name) instanceof Rng && !out.includes(n.name)) out.push(n.name);
+  if (n.type === 'id' && !bound.has(n.name) && env.get(keyOf(n)) instanceof Rng && !out.includes(keyOf(n))) out.push(keyOf(n));
   if (n.type === 'sub' && n.e.type === 'id') { /* базовое имя индексируется — проверим индекс */ }
   let nb = bound;
   if ((n.type === 'sum' || n.type === 'prod' || n.type === 'int') && n.v) { nb = new Set(bound); nb.add(n.v); }
@@ -1132,7 +1283,17 @@ function freeRanges(n, env, bound, out) {
 }
 
 // ───────────────────────── Лист: выполнение определений ─────────────────────────
+function markUnits(n) { if (!n || typeof n !== 'object') return n; if (Array.isArray(n)) return n.map(markUnits); if (n.type === 'id') return Object.assign({}, n, { unit: true }, (UNITS.has(n.name) || TEMP[n.name]) ? { u: true } : {}); const o = {}; for (const k in n) o[k] = markUnits(n[k]); return o; }
 function execStatement(st, env, opts) {
+  const res = execStatement0(st, env, opts);
+  if (st.unit && res.value !== undefined && res.value !== null && !(res.value instanceof Fn)) {
+    const ctx = new Ctx(env, opts); let u; ctxPure.on = true; try { u = evalNode(markUnits(st.unit), env, ctx); } finally { ctxPure.on = false; } const ut = tex(markUnits(st.unit), 0);
+    if (res.value instanceof Rng) { let t = ut; const vals = res.value.vals.map(x => { const r = inUnits(x, u, ut); t = r.unitTex; return r.value; }); res.shown = new Rng(vals); res.unitTex = t; }
+    else { const r = inUnits(res.value, u, ut); res.shown = r.value; res.unitTex = r.unitTex; }
+  }
+  return res;
+}
+function execStatement0(st, env, opts) {
   const ctx = new Ctx(env, opts);
   if (st.type === 'empty') return { env };
   if (st.type === 'define') {
@@ -1150,7 +1311,7 @@ function execStatement(st, env, opts) {
       if (step === 0 || (b - a) / step < 0) throw err('Неверный шаг ранжированной переменной');
       const cnt = Math.floor((b - a) / step + 1e-9) + 1; if (cnt > 1e6) throw err('Слишком много значений (>10⁶)');
       const vals = []; for (let k = 0; k < cnt; k++) vals.push(+(a + k * step).toPrecision(15));
-      value = new Rng(vals); newEnv.set(lhs.name, value);
+      value = new Rng(vals); newEnv.set(keyOf(lhs), value);
       return { env: newEnv, value: st.show ? value : undefined, name: lhs.name };
     }
     if (lhs.type === 'id') {
@@ -1158,7 +1319,7 @@ function execStatement(st, env, opts) {
       if (fr.length) throw err('Справа ранжированная переменная «' + fr[0] + '» — используйте индекс: ' + lhs.name + '_' + fr[0] + ' := …');
       value = evalNode(st.rhs, env, ctx);
       if (value instanceof Fn && st.rhs.type === 'id') value = new Fn(value.params, value.body, value.env, lhs.name);
-      newEnv.set(lhs.name, value); return { env: newEnv, value: st.show ? value : undefined, name: lhs.name };
+      newEnv.set(keyOf(lhs), value); return { env: newEnv, value: st.show ? value : undefined, name: lhs.name };
     }
     if (lhs.type === 'matrix' && lhs.rows.every(r => r.length === 1 && (r[0].type === 'id' || r[0].type === 'sub'))) { // [x; y] := …
       const names = lhs.rows.map(r => r[0].type === 'id' ? r[0].name : (r[0].e.name + '_' + r[0].raw));
@@ -1169,16 +1330,16 @@ function execStatement(st, env, opts) {
       return { env: e2, value: st.show ? colVec(vals) : undefined, name: names.join(',') };
     }
     if (lhs.type === 'sub' && lhs.e.type === 'id') { // x_i := … (заполнение массива) или x_1 := …
-      const name = lhs.e.name; const o = ORIGIN(env);
+      const name = keyOf(lhs.e); const o = ORIGIN(env);
       const fr = freeRanges(lhs.ix || [], env, new Set(), []);
-      let cur = env.get(name); let M = cur instanceof Mat ? new Mat(cur.r, cur.c, cur.a.slice()) : new Mat(0, 1, []);
+      let cur = env.get(name); let M = cur instanceof Mat ? new Mat(cur.r, cur.c, cur.a.slice()) : new Mat(0, 1, []); let lastV;
       const assign = (local) => {
         const idx = lhs.ix.map(x => toInt(evalNode(x, local, ctx)) - o);
         const v = toScalar(evalNode(st.rhs, local, ctx));
         const i = idx[0], j = idx.length > 1 ? idx[1] : 0;
         if (i < 0 || j < 0) throw err('Отрицательный индекс');
         if (i >= M.r || j >= M.c) { const nr = Math.max(M.r, i + 1), nc = Math.max(M.c, j + 1); const N = new Mat(nr, nc); for (let p = 0; p < M.r; p++) for (let q = 0; q < M.c; q++) N.set(p, q, M.get(p, q)); M = N; }
-        M.set(i, j, v);
+        M.set(i, j, v); lastV = v;
       };
       if (!lhs.ix) throw err('Неверный индекс в левой части');
       if (fr.length) {
@@ -1186,7 +1347,7 @@ function execStatement(st, env, opts) {
         const loop = (k) => { if (k === fr.length) return assign(local); for (const v of env.get(fr[k]).vals) { local.set(fr[k], v); loop(k + 1); } };
         loop(0);
       } else assign(env);
-      newEnv.set(name, M); return { env: newEnv, value: st.show ? M : undefined, name };
+      newEnv.set(name, M); return { env: newEnv, value: st.show ? (fr.length ? M : lastV) : undefined, name };
     }
     throw err('Неверная левая часть определения');
   }
@@ -1297,6 +1458,7 @@ function roundHalfUp(x, d) { const k = Math.pow(10, d); const r = Math.sign(x) *
 function trimZeros(s) { if (s.indexOf('.') >= 0) s = s.replace(/0+$/, '').replace(/\.$/, ''); return s; }
 function fmtScalar(v, f) {
   if (typeof v === 'number') return fmtReal(v, f);
+  if (v instanceof Q) return fmtScalar(v.v, f) + '\\,' + dimTex(v.d);
   if (isC(v)) {
     f = f || DEFAULT_FMT; const thr = Math.pow(10, -(f.decimals + 12));
     const r = Math.abs(v.re) < 1e-15 * Math.abs(v.im) ? 0 : v.re, i = Math.abs(v.im) < 1e-15 * Math.abs(v.re) ? 0 : v.im;
@@ -1309,7 +1471,11 @@ function fmtScalar(v, f) {
   }
   return '?';
 }
-function fmtValue(v, f) {
+function fmtValue(v, f, unitTex) {
+  if (unitTex) return fmtValue(v, f) + '\\,' + unitTex;
+  if (v instanceof Mat && v.a.length && v.a.some(x => x instanceof Q) && v.a.every(x => x === 0 || dimEq(qd(x), qd(v.a.find(y => y instanceof Q))))) {
+    const d = qd(v.a.find(y => y instanceof Q)); return fmtValue(new Mat(v.r, v.c, v.a.map(qv)), f) + '\\,' + dimTex(d);
+  }
   if (v instanceof Mat) {
     const MAXR = 14, MAXC = 8;
     const rows = []; for (let i = 0; i < Math.min(v.r, MAXR); i++) { const cells = []; for (let j = 0; j < Math.min(v.c, MAXC); j++) cells.push(fmtScalar(v.get(i, j), f)); if (v.c > MAXC) cells.push('\\cdots'); rows.push(cells.join('&')); }
@@ -1327,13 +1493,14 @@ function fmtPlain(v) { if (typeof v === 'number') return String(+v.toPrecision(1
 
 // ───────────────────────── Дерево → LaTeX (для импорта .xmcd) ─────────────────────────
 function nameToTex(name) {
+  if (/^Δ?°[CF]?$/.test(name)) return name.replace('Δ', '\\Delta ');
   // имя: base[_sub], base может содержать греческие буквы и '
   const us = name.indexOf('_');
   const base = us >= 0 ? name.slice(0, us) : name, sub = us >= 0 ? name.slice(us + 1) : null;
   const conv = s => { let o = ''; for (const ch of s) { o += GREEK_TO_TEX[ch] ? GREEK_TO_TEX[ch] + ' ' : (ch === "'" ? "'" : ch); } return o.trim(); };
   const isOne = [...base].length === 1 || GREEK_TO_TEX[base];
   let t = isOne ? conv(base) : (/^[A-Za-z]+$/.test(base.replace(/'/g, '')) ? '\\mathrm{' + base.replace(/'/g, '') + '}' + "'".repeat((base.match(/'/g) || []).length) : conv(base));
-  if (sub !== null) t += '_{\\mathrm{' + conv(sub) + '}}';
+  if (sub === '') t += '_{\\,}'; else if (sub !== null) t += '_{\\mathrm{' + conv(sub) + '}}';
   return t;
 }
 const PREC = { or: 1, and: 2, cmp: 3, add: 4, mul: 5, neg: 6, pow: 7, atom: 9 };
@@ -1344,7 +1511,7 @@ function tex(n, p) {
     case 'num': { let s = String(n.v); if (/e/.test(s)) { const [m, e] = s.split('e'); s = m + '\\cdot10^{' + parseInt(e) + '}'; return wrap(s, PREC.mul); } return n.v < 0 ? wrap(s, PREC.neg) : s; }
     case 'str': return '\\text{"' + n.v + '"}';
     case 'imag': return String(n.v) + 'i';
-    case 'id': return nameToTex(n.name);
+    case 'id': return (n.unit || n.u) && /^[A-Za-zμÅΩ_]+$/.test(n.name) ? '\\mathrm{' + n.name.replace(/_/g, '\\_') + '}' : nameToTex(n.name);
     case 'paren': return '\\left(' + tex(n.e, 0) + '\\right)';
     case 'neg': return wrap('-' + tex(n.e, PREC.neg), PREC.neg);
     case 'un': return wrap('\\neg ' + tex(n.e, PREC.neg), PREC.neg);
@@ -1352,6 +1519,7 @@ function tex(n, p) {
       const o = n.op;
       if (o === '/') return '\\frac{' + tex(n.l, 0) + '}{' + tex(n.r, 0) + '}';
       if (o === '+' || o === '-') return wrap(tex(n.l, PREC.add) + o + tex(n.r, PREC.add + 1), PREC.add);
+      if (o === '·' && n.r.type === 'id' && /^Δ?°[CF]?$/.test(n.r.name)) return wrap(tex(n.l, PREC.mul) + '\\,' + n.r.name, PREC.mul);
       if (o === '·') return wrap(tex(n.l, PREC.mul) + '\\cdot ' + tex(n.r, PREC.mul + 1), PREC.mul);
       const cm = { '<': '<', '>': '>', '≤': '\\le ', '≥': '\\ge ', '≠': '\\ne ', '==': '=' }[o];
       if (cm) return wrap(tex(n.l, PREC.cmp + 1) + cm + tex(n.r, PREC.cmp + 1), PREC.cmp);
@@ -1367,7 +1535,7 @@ function tex(n, p) {
     case 'transpose': return tex(n.e, PREC.atom) + '^{T}';
     case 'col': return tex(n.e, PREC.atom) + '^{\\langle ' + tex(n.j, 0) + '\\rangle}';
     case 'matrix': return '\\begin{bmatrix}' + n.rows.map(r => r.map(c => tex(c, 0)).join('&')).join('\\\\') + '\\end{bmatrix}';
-    case 'sub': return tex(n.e, PREC.atom) + '_{' + (n.ix ? n.ix.map(x => tex(x, 0)).join(',') : n.raw) + '}';
+    case 'sub': { const ixt = n.ix ? n.ix.map(x => tex(x, 0)).join(',') : n.raw; return tex(n.e, PREC.atom) + '_{' + (n.ix && /^\\mathrm/.test(ixt) ? '{' + ixt + '}' : ixt) + '}'; }
     case 'call': {
       const std = { sin: 1, cos: 1, tan: 1, cot: 1, sec: 1, csc: 1, ln: 1, log: 1, exp: 1, sinh: 1, cosh: 1, tanh: 1, max: 1, min: 1, arg: 1, det: 1 };
       const f = std[n.f] ? '\\' + n.f : nameToTex(n.f);
@@ -1382,14 +1550,15 @@ function tex(n, p) {
   }
   return '?';
 }
+function unitTexOf(u) { return u ? '\\left[' + tex(u, 0) + '\\right]' : ''; }
 function stmtToTex(st) {
-  if (st.type === 'define') return tex(st.lhs, 0) + (st.global ? '\\equiv ' : '\\coloneq ') + tex(st.rhs, 0) + (st.sym ? '\\to ' : st.show ? '=' : '');
-  if (st.type === 'eval') return tex(st.expr, 0) + (st.sym ? '\\to ' : '=');
+  if (st.type === 'define') return tex(st.lhs, 0) + (st.global ? '\\equiv ' : '\\coloneq ') + tex(st.rhs, 0) + (st.sym ? '\\to ' : st.show ? '=' + unitTexOf(st.unit) : '');
+  if (st.type === 'eval') return tex(st.expr, 0) + (st.sym ? '\\to ' : '=' + unitTexOf(st.unit));
   if (st.type === 'expr') return tex(st.expr, 0);
   return '';
 }
 
 const api = { Sol, solveSystem, SheetRunner, SOLVE_FNS, parse, parseList, Parser, tokenize, Env, Ctx, execStatement, evalNode, fmtValue, fmtScalar, fmtReal, DEFAULT_FMT, toTex, stmtToTex, nameToTex,
-  C, Mat, Rng, Fn, Str, MathErr, toNum, isNum, re, im, cabs, B, BUILTIN_NAMES, CONSTS, freeRanges, vecOf, asMat, integrate, brent };
+  C, Mat, Rng, Fn, Str, MathErr, Q, UNITS, TEMP, TempScale, unitless, dimTex, inUnits, toNum, isNum, re, im, cabs, B, BUILTIN_NAMES, CONSTS, freeRanges, vecOf, asMat, integrate, brent };
 if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.MatEngine = api;
 })(typeof self !== 'undefined' ? self : this);
