@@ -1,0 +1,50 @@
+# Модель рукописного ввода: CoMER, дообученная в Des-fee/calculator → ONNX (энкодер + декодер) → релиз model-onnx.
+# Запускается вручную; сборка APK берёт файлы модели из этого релиза.
+name: Модель рукописного ввода
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  model:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Исходники модели
+        run: |
+          git clone --depth 1 https://github.com/Des-fee/calculator /tmp/calc
+          git clone --depth 1 https://github.com/Green-Wood/CoMER /tmp/CoMER
+          ls -la /tmp/calc/model/weights
+      - name: Экспорт в ONNX и проверка на CROHME
+        run: |
+          pip install torch==2.5.1 torchvision==0.20.1 --index-url https://download.pytorch.org/whl/cpu
+          pip install onnx==1.17.0 onnxruntime==1.20.1 pytorch-lightning==2.4.0 einops pillow opencv-python-headless 2>&1 | tail -n 3
+          mkdir -p model-out
+          COMER_CKPT=/tmp/calc/model/weights/comer_mathwriting.ckpt python /tmp/calc/model/export_onnx.py /tmp/CoMER model-out 100 2>&1 | tee model-out/export.log
+          python tools/quant_model.py model-out | tee -a model-out/export.log
+          ls -la model-out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: model
+          path: model-out
+      - name: Релиз model-onnx
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: model-onnx
+          name: Модель рукописного ввода (ONNX)
+          body: CoMER (Des-fee/calculator, дообучение на MathWriting) в формате ONNX для Матлиста.
+          prerelease: true
+          make_latest: false
+          files: |
+            model-out/encoder.onnx
+            model-out/decoder.onnx
+            model-out/encoder_q.onnx
+            model-out/decoder_q.onnx
+            model-out/vocab.txt
+            model-out/export.log
