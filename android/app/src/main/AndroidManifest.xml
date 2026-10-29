@@ -19,7 +19,7 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <!-- «Открыть с помощью → Матлист» для листов Mathcad -->
+            <!-- «Открыть с помощью → Матлист» для листов Mathcad и решений в Markdown -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -29,6 +29,9 @@
                 <data android:mimeType="application/xml" />
                 <data android:mimeType="text/xml" />
                 <data android:mimeType="application/octet-stream" />
+                <data android:mimeType="text/markdown" />
+                <data android:mimeType="text/x-markdown" />
+                <data android:mimeType="text/plain" />
                 <data android:mimeType="application/vnd.mathcad" />
             </intent-filter>
             <intent-filter>
@@ -37,6 +40,9 @@
                 <data android:mimeType="application/xml" />
                 <data android:mimeType="text/xml" />
                 <data android:mimeType="application/octet-stream" />
+                <data android:mimeType="text/markdown" />
+                <data android:mimeType="text/x-markdown" />
+                <data android:mimeType="text/plain" />
             </intent-filter>
         </activity>
     </application>

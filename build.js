@@ -23,6 +23,7 @@ function build(mode) {
   put('/*XMCD_JS*/', rd('src/xmcd.js'));
   put('/*WSPHELP_JS*/', rd('src/wsphelp.js'));
   put('/*INK_JS*/', rd('src/ink.js'));
+  put('/*MD_JS*/', rd('src/md.js'));
   put('/*PLOT_JS*/', rd('src/plot.js'));
   put('/*EXPORT_JS*/', rd('src/export.js'));
   put('/*TEST_JS*/', rd('src/testsheet.js'));

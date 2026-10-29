@@ -1,7 +1,7 @@
 // Матлист — интерфейс: лист с регионами и курсором-крестиком, шаблонная клавиатура, графики, импорт .xmcd.
 (function () {
 'use strict';
-const E = window.MatEngine, X = window.MatXmcd, ML = window.MathLive, MP = window.MatPlot;
+const E = window.MatEngine, X = window.MatXmcd, ML = window.MathLive, MP = window.MatPlot, MD = window.MatMarkdown;
 const $ = (s, el) => (el || document).querySelector(s);
 const h = (tag, cls, txt) => { const e = document.createElement(tag); if (cls) e.className = cls; if (txt != null) e.textContent = txt; return e; };
 const PT = 4 / 3; // 1 pt Mathcad = 4/3 px
@@ -28,7 +28,7 @@ function recompute() {
   for (const r of sorted()) {
     if (r.kind === 'math') {
       r.res = null; r.err = null; r.tbl = false; r.role = null; r.before = { env: R.env, given: R.given ? R.given.slice() : null };
-      if (!r.latex || !r.latex.trim()) continue;
+      if (!r.latex || !r.latex.trim() || r.noeval) continue; // noeval — формула из .md, показывается как записана
       let st = null;
       try {
         st = E.parse(r.latex); r.stmt = st.type;
@@ -931,7 +931,45 @@ document.querySelectorAll('.dlg [data-close]').forEach(b => b.addEventListener('
 $('#bRecalc').addEventListener('click', () => { commit(false); recompute(); render(); toast('Лист пересчитан'); });
 $('#bZoomIn').addEventListener('click', () => setZoom(S.zoom * 1.2));
 $('#bZoomOut').addEventListener('click', () => setZoom(S.zoom / 1.2));
+// .md → лист: формулы $$…$$ становятся регионами, текст — текстовыми регионами; затем раскладка по реальным размерам
+function isMd(fileName, txt) { return /\.(md|markdown|txt)$/i.test(fileName || '') || (!/^\s*<\?xml|^\s*<worksheet/i.test(txt) && /(^|\n)\s*(#{1,6}\s|\$\$|\\\[|```)|\$[^$\n]+\$/.test(txt)); }
+function openMdText(fileName, txt) {
+  try {
+    const res = MD.mdToSheet(txt);
+    if (!res.regions.length) { toast('В файле нет содержимого'); return; }
+    const name = String(fileName || '').replace(/\.(md|markdown|txt)$/i, '').trim() || (res.title ? res.title.slice(0, 40) : 'Лист из .md');
+    setSheet(uniqueName(name), res.regions, 380); mdLayout(); recompute(); fitZoom(); render(); save();
+    const n = S.regions.filter(r => r.kind === 'math').length, ne = S.regions.filter(r => r.noeval).length;
+    toast('Лист из .md: формул ' + n + (ne ? ' (только показ: ' + ne + ')' : '') + '. В Mathcad — меню «Сохранить как .xmcd»');
+  } catch (e) { toast('Не удалось развернуть .md: ' + e.message); }
+}
+// строки (регионы с одинаковым y из md.js) укладываются сверху вниз по фактической высоте, подписи единиц — сразу за формулой
+function mdLayout() {
+  const rows = new Map(); for (const r of S.regions) { if (!rows.has(r.y)) rows.set(r.y, []); rows.get(r.y).push(r); }
+  const keys = [...rows.keys()].sort((a, b) => a - b); let y = 16, first = true;
+  const z0 = page.style.zoom; page.style.zoom = 1; // мерить без масштаба
+  for (const k of keys) {
+    const row = rows.get(k).sort((a, b) => a.x - b.x); const x0 = row[0].x, xMax = Math.max(S.pageW, 360) - 12;
+    if (row[0].kind === 'text' && row[0].bold && !first) y += 10;
+    // ряд может не уместиться по ширине — переносится на следующие строки (формула вместе со своей подписью)
+    const box = r => { const el = page.querySelector('[data-id="' + r.id + '"]'); return el ? [el.offsetWidth, el.offsetHeight] : [100, 24]; };
+    const groups = []; row.forEach(r => { if (r.mdUnit && groups.length) groups[groups.length - 1].push(r); else groups.push([r]); });
+    let line = [], x = x0;
+    const flush = () => { if (!line.length) return; const hmax = Math.max(...line.map(r => box(r)[1]));
+      for (const r of line) r.y = r.mdUnit ? y + Math.max(0, Math.round((hmax - box(r)[1]) / 2)) : y; // подпись единиц — по центру строки
+      y += hmax + (line[0].kind === 'text' && line[0].bold ? 8 : 10); line = []; x = x0; };
+    for (const g of groups) {
+      const gw = g.reduce((a, r, i) => a + box(r)[0] + (i ? 6 : 0), 0);
+      if (line.length && x + gw > xMax) flush();
+      g.forEach((r, i) => { r.x = x; x += box(r)[0] + (i < g.length - 1 ? 6 : 24); line.push(r); });
+    }
+    flush(); first = false;
+  }
+  page.style.zoom = z0;
+  let maxY = 0; for (const r of S.regions) maxY = Math.max(maxY, r.y); S.cursor = { x: 16, y: maxY + 60 };
+}
 function openXmcdText(fileName, txt) {
+  if (isMd(fileName, txt)) return openMdText(fileName, txt);
   try {
     const res = X.importXmcd(txt);
     const regs = res.regions.map(r => Object.assign({}, r, { x: Math.round(r.x * PT), y: Math.round(r.y * PT) }, r.ady ? { ady: Math.round(r.ady * PT) } : {}));

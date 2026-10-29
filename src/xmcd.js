@@ -322,7 +322,7 @@ function exportXmcd(regions, settings, parse) {
   };
   const text = (r, t, bold) => {
     const ps = String(t).split('\n').map(line => '<p style="Обычный" margin-left="inherit" margin-right="inherit" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit">' + (bold ? '<b>' + esc(line) + '</b>' : esc(line)) + '</p>').join('');
-    reg(r.x, r.y, r.w || Math.min(500, 8 * String(t).length + 20), r.h || 18 * String(t).split('\n').length, '<text use-page-width="false" push-down="false" lock-width="' + (r.w ? 'true' : 'false') + '">' + ps + '</text>');
+    reg(r.x, r.y, r.w || Math.min(500, 8 * Math.max(...String(t).split('\n').map(l => l.length)) + 20), r.h || 18 * String(t).split('\n').length, '<text use-page-width="false" push-down="false" lock-width="' + (r.w ? 'true' : 'false') + '">' + ps + '</text>');
   };
   const sortedRegs = regions.slice().sort((a, b) => (a.y + (a.ady || 0)) - (b.y + (b.ady || 0)) || a.x - b.x);
   EXP_DEFINED = new Set();
@@ -337,6 +337,11 @@ function exportXmcd(regions, settings, parse) {
     if (r.kind === 'math') {
       if (!r.latex || !r.latex.trim()) continue;
       let st = null, sol = null;
+      if (r.noeval) { // формула из .md, которая не считается (уравнение, символьный вывод) — пишем с отключённым вычислением
+        try { st = parse(r.latex); reg(r.x, r.y, 140, r.h || 24, '<math optimize="false" disable-calc="true">' + mlStatement(st) + '</math>'); }
+        catch (e) { text(r, r.mdPlain || r.latex); }
+        continue;
+      }
       try { st = parse(r.latex); } catch (e) { notes.push('ошибка формулы: ' + e.message); text(r, '[Матлист: ' + r.latex + ']'); continue; }
       const envBefore = runner.env, inGiven = !!runner.given;
       try { const out = runner.step(st); if (out.value instanceof E.Sol) sol = out.value; } catch (e) { /* ошибка вычисления — формулу всё равно пишем */ }

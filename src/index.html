@@ -12,7 +12,7 @@
 <div class="loading" id="loading">Загрузка Матлиста…</div>
 <header class="top">
   <button class="ib" id="bMenu" aria-label="Меню"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
-  <div class="title" id="title" title="Переименовать">Тестовый лист<small>Матлист · пробная версия 0.5</small></div>
+  <div class="title" id="title" title="Переименовать">Тестовый лист<small>Матлист · пробная версия 0.6</small></div>
   <button class="ib" id="bZoomOut" aria-label="Уменьшить">−</button>
   <button class="ib" id="bZoomIn" aria-label="Увеличить">+</button>
   <button class="ib" id="bRecalc" aria-label="Пересчитать"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 4v7h-7"/></svg></button>
@@ -93,7 +93,7 @@
   <button id="mLib">Мои листы…</button>
   <button id="mNew">Новый лист</button>
   <button id="mTest">Тестовый лист функций</button>
-  <button id="mOpen">Открыть .xmcd…</button>
+  <button id="mOpen">Открыть .xmcd / .md…</button>
   <button id="mSave">Сохранить как .xmcd</button>
   <button id="mDocx">Сохранить в Word (.docx)</button>
   <button id="mPdf">Сохранить в PDF…</button>
@@ -104,7 +104,7 @@
   <hr>
   <button id="mAbout">О версии</button>
 </div></div>
-<input type="file" id="file" accept=".xmcd,application/xml,text/xml,*/*" hidden>
+<input type="file" id="file" accept=".xmcd,.md,.markdown,.txt,application/xml,text/xml,text/markdown,text/plain,*/*" hidden>
 <input type="file" id="imgfile" accept="image/*" hidden>
 <div class="full" id="full"><div class="fullbar"><span id="fullTitle"></span><button id="fullFit" class="sm">Сбросить вид</button><button id="fullClose" class="pri">Закрыть</button></div><canvas id="fullcv"></canvas><p class="hint">Палец — двигать, щипок — масштаб, удержание — координаты точки, двойной тап — сброс</p></div>
 <div class="dlg" id="dFmt"><div class="box">
@@ -138,8 +138,8 @@
   <div class="btns"><button data-close>Закрыть</button></div>
 </div></div>
 <div class="dlg" id="dAbout"><div class="box">
-  <h3>Матлист 0.5 — пробная версия</h3>
-  <p>Рабочий лист в духе Mathcad 15: определения :=, вывод =, функции, ранжированные переменные, матрицы, root, polyroots, lsolve, интегралы, производные, Σ и Π, rkfixed, системы уравнений, Given/Find/Minerr, Minimize/Maximize, Odesolve, вычисление «→», графики, свойства воды и пара (все функции WaterSteamPro и iap97), газы, несколько листов, .xmcd, экспорт в Word и PDF.</p>
+  <h3>Матлист 0.6 — пробная версия</h3>
+  <p>Рабочий лист в духе Mathcad 15: определения :=, вывод =, функции, ранжированные переменные, матрицы, root, polyroots, lsolve, интегралы, производные, Σ и Π, rkfixed, системы уравнений, Given/Find/Minerr, Minimize/Maximize, Odesolve, вычисление «→», графики, свойства воды и пара (все функции WaterSteamPro и iap97), газы, несколько листов, .xmcd, развёртывание решения из .md (Markdown с формулами $$…$$) в лист, экспорт в Word и PDF.</p>
   <p>Перемещение: удерживайте регион и тяните — у края экрана лист прокручивается сам. Удержание на пустом месте — меню. ▾ — спрятать клавиатуру. Масштаб: щипок двумя пальцами.</p>
   <p>Единицы измерения как в Mathcad: 5 kg, 20 °C, вывод в своих единицах «x = [kW]» (вкладка «ед.»). Рукописный ввод — кнопка с пером. Справка по WSP — «?» на вкладке WSP.</p>
   <p>Ещё нет: символьных преобразований (laplace, simplify).</p>
@@ -155,6 +155,7 @@
 <script>/*XMCD_JS*/</script>
 <script>/*WSPHELP_JS*/</script>
 <script>/*INK_JS*/</script>
+<script>/*MD_JS*/</script>
 <script>/*PLOT_JS*/</script>
 <script>/*EXPORT_JS*/</script>
 <script>/*TEST_JS*/</script>

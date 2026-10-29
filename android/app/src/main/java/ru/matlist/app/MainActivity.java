@@ -98,7 +98,7 @@ public class MainActivity extends Activity {
                 i.addCategory(Intent.CATEGORY_OPENABLE);
                 i.setType(type);
                 try {
-                    startActivityForResult(Intent.createChooser(i, type.startsWith("image") ? "Выберите картинку" : "Выберите файл .xmcd"), REQ_PICK);
+                    startActivityForResult(Intent.createChooser(i, type.startsWith("image") ? "Выберите картинку" : "Выберите файл .xmcd или .md"), REQ_PICK);
                 } catch (ActivityNotFoundException e) {
                     pickCallback = null;
                     return false;
@@ -148,6 +148,11 @@ public class MainActivity extends Activity {
         Uri uri = null;
         if (Intent.ACTION_VIEW.equals(intent.getAction())) uri = intent.getData();
         else if (Intent.ACTION_SEND.equals(intent.getAction())) uri = intent.getParcelableExtra(Intent.EXTRA_STREAM);
+        if (uri == null && Intent.ACTION_SEND.equals(intent.getAction())) { // «Поделиться» текстом (решение в Markdown)
+            String t = intent.getStringExtra(Intent.EXTRA_TEXT);
+            if (t != null && !t.trim().isEmpty()) { pendingOpenText = t; pendingOpenName = "Заметка.md"; deliverOpen(); }
+            return;
+        }
         if (uri == null) return;
         try {
             pendingOpenText = readText(uri);
