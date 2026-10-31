@@ -69,7 +69,9 @@ function formula(raw) {
   const fixed = p => (parsesTo(p) ? p : splitLetters(p));
   const lhs = parts[0], last = parts[parts.length - 1];
   if (isName(lhs) && parts.length >= 2) {
-    const rhs = fixed(parts[1]);
+    let rhs = fixed(parts[1]);
+    // «C = \left. … \right|_{s=0} = \frac{5}{1\cdot 2} = 2.5»: первая запись не считается — берём следующую считаемую
+    if (!parsesTo(rhs) && parts.length > 2) { for (let k = 2; k < parts.length - 1; k++) { const c = fixed(parts[k]); if (parsesTo(c)) { rhs = c; break; } } }
     if (parts.length === 2) return { latex: lhs + '\\coloneq ' + rhs + (isNum(rhs) ? '' : '='), unit: u.unit, full, kind: 'def', given: isNum(last) ? numOf(last) : null };
     return { latex: lhs + '\\coloneq ' + rhs + '=', unit: u.unit, full, kind: 'def', given: isNum(last) ? numOf(last) : null };
   }
@@ -184,7 +186,18 @@ function settle(regions) {
   }
   return regions;
 }
-function mdToSheet(md) { const { regions, title } = mdToRegions(md); return { regions: settle(regions), title }; }
-const api = { mdToSheet, mdToRegions, blocks, formula, inline, plainTex };
+// шапка «---\nmatlist: live|text\n---» от конвертера «Текст в MD»: live — формулы считаются, text — только показ
+function frontMatter(md) {
+  const m = /^\uFEFF?---\r?\n([\s\S]*?)\r?\n---\s*(?:\r?\n|$)/.exec(md);
+  if (!m) return { mode: 'live', body: md };
+  const k = /^\s*matlist\s*:\s*(\w+)/m.exec(m[1]);
+  return { mode: k && /^(text|static|текст)$/i.test(k[1]) ? 'text' : 'live', body: md.slice(m[0].length) };
+}
+function mdToSheet(md) {
+  const fm = frontMatter(md); const { regions, title } = mdToRegions(fm.body.replace(/<!--[\s\S]*?-->/g, ''));
+  if (fm.mode === 'text') { for (const r of regions) if (r.kind === 'math') { if (r.mdFull && parsesTo(r.mdFull)) r.latex = r.mdFull; r.noeval = true; r.mdPlain = plainTex(r.mdFull || r.latex); } return { regions, title, mode: 'text' }; }
+  return { regions: settle(regions), title, mode: 'live' };
+}
+const api = { frontMatter, mdToSheet, mdToRegions, blocks, formula, inline, plainTex };
 if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.MatMarkdown = api;
 })(typeof self !== 'undefined' ? self : this);

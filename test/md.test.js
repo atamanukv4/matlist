@@ -32,4 +32,9 @@ const R2 = new E.SheetRunner(0); let qv = null;
 for (const r of back.slice().sort((a, b) => (a.y + (a.ady || 0)) - (b.y + (b.ady || 0)) || a.x - b.x)) if (r.kind === 'math') { try { const o = R2.step(E.parse(r.latex)); if (/^q\\coloneq/.test(r.latex)) qv = E.fmtValue(o.value); } catch (e) {} }
 eq('обратный импорт: q', qv, '84');
 eq('обратный импорт: текст', back.some(r => r.kind === 'text' && /Термическое сопротивление/.test(r.text)), true);
+// шапка «Текст в MD» и подстановка в точке
+eq('шапка live', M.frontMatter('---\nmatlist: live\n---\n\n# А').mode, 'live');
+eq('шапка не в тексте', M.mdToSheet('---\nmatlist: live\n---\n\n# А\n\n$$x = 2$$').regions.some(r => r.kind === 'text' && /matlist/.test(r.text)), false);
+eq('режим text — без пересчёта', M.mdToSheet('---\nmatlist: text\n---\n\n$$x = 2$$\n$$y = x + 1 = 3$$').regions.filter(r => r.kind === 'math').every(r => r.noeval), true);
+eq('\\right| — следующая запись', f('C = \\left. \\frac{5}{(s+1)(s+2)} \\right|_{s=0} = \\frac{5}{1 \\cdot 2} = 2.5').latex, 'C\\coloneq \\frac{5}{1 \\cdot 2}=');
 console.log(fails.join('\n')); console.log(ok + '/' + (ok + bad) + ' ok'); if (bad) process.exit(1);
