@@ -25,6 +25,7 @@ function run(m) {
     if (r.kind !== 'math') return;
     const it = { id: r.id, res: null, err: null, role: null, tbl: false, stmt: null, delta: null };
     if (!r.latex || !r.latex.trim() || r.noeval) { if (i >= m.from) buf.push(it); return; }
+    if (r.pre) { try { R.replay(E.parse(r.latex), r.delta); } catch (e) { /* ошибка уже показана интерфейсом */ } return; } // посчитано интерфейсом — только повторить
     let st = null; const env0 = R.env;
     try {
       st = E.parse(r.latex); it.stmt = st.type;

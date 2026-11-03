@@ -53,15 +53,41 @@ const KBW = ['auto', 450, 500, 640, 720];
 function kbwAuto() { const W = window.innerWidth; return W < 900 ? 450 : W < 1150 ? 500 : W < 1500 ? 640 : 720; }
 function applyKbw() {
   let v = 'auto'; try { v = localStorage.getItem('matlist.kbdW') || 'auto'; } catch (e) {}
-  const px = Math.min(v === 'auto' ? kbwAuto() : +v, Math.round(window.innerWidth * 0.62)); // лист не уже ~40 % экрана
-  document.body.style.setProperty('--kbdw', px + 'px'); const m = $('#mKbw'); if (m) m.textContent = 'Ширина клавиатуры: ' + (v === 'auto' ? 'авто (' + px + ' px)' : v + ' px');
+  const custom = v !== 'auto' && !KBW.includes(+v); // ширина, выставленная разделителем
+  const px = Math.max(260, Math.min(v === 'auto' ? kbwAuto() : +v, custom ? window.innerWidth - 240 : Math.round(window.innerWidth * 0.62))); // лист не уже ~40 % экрана (или 240 px при ручной ширине)
+  document.body.style.setProperty('--kbdw', px + 'px'); const m = $('#mKbw'); if (m) m.textContent = 'Ширина клавиатуры: ' + (v === 'auto' ? 'авто (' + px + ' px)' : (custom ? 'своя, ' : '') + px + ' px');
+  let kh = 0; try { kh = +localStorage.getItem('matlist.kbdH') || 0; } catch (e) {}
+  if (kh) document.body.style.setProperty('--kh', kh + 'px'); else document.body.style.removeProperty('--kh');
 }
+// разделитель между листом и клавиатурой
+const isLand = () => window.matchMedia('(orientation: landscape) and (min-width: 640px)').matches;
+(function () {
+  const sp = document.getElementById('kSplit'); if (!sp) return;
+  let st = null, lastTap = 0;
+  sp.addEventListener('pointerdown', ev => {
+    ev.preventDefault(); ev.stopPropagation(); try { sp.setPointerCapture(ev.pointerId); } catch (e) {}
+    const now = Date.now(); if (now - lastTap < 350) { try { localStorage.removeItem('matlist.kbdW'); localStorage.removeItem('matlist.kbdH'); } catch (e) {} applyKbw(); afterSize(); lastTap = 0; return; } lastTap = now;
+    const land = isLand(), keys = $('#keys'), kh0 = parseFloat(getComputedStyle(keys.querySelector('button') || keys).height) || 42;
+    st = { land, x: ev.clientX, y: ev.clientY, w: $('#kbd').getBoundingClientRect().width, kh: kh0, rows: Math.max(1, Math.round(keys.clientHeight / (kh0 + 4))) };
+    sp.classList.add('drag'); document.body.classList.add('kbd-sizing');
+  });
+  sp.addEventListener('pointermove', ev => {
+    if (!st) return; ev.preventDefault();
+    if (st.land) { const left = document.body.classList.contains('kbd-left'); const w = Math.round(st.w + (left ? ev.clientX - st.x : st.x - ev.clientX)); const px = Math.max(260, Math.min(window.innerWidth - 240, w)); try { localStorage.setItem('matlist.kbdW', String(px)); } catch (e) {} }
+    else { const kh = Math.round(Math.max(30, Math.min(72, st.kh + (st.y - ev.clientY) / st.rows))); try { localStorage.setItem('matlist.kbdH', String(kh)); } catch (e) {} }
+    applyKbw();
+  });
+  const end = () => { if (!st) return; st = null; sp.classList.remove('drag'); document.body.classList.remove('kbd-sizing'); afterSize(); };
+  sp.addEventListener('pointerup', end); sp.addEventListener('pointercancel', end);
+  function afterSize() { if (S.zoomAuto !== false && typeof fitZoom === 'function') fitZoom(); }
+})();
 window.addEventListener('resize', applyKbw); applyKbw();
 function openKbw() {
   let cur = 'auto'; try { cur = localStorage.getItem('matlist.kbdW') || 'auto'; } catch (e) {}
   const list = $('#kbwList'); list.innerHTML = '';
   for (const v of KBW) { const b = h('button', String(v) === cur ? 'on' : ''); b.appendChild(h('span', '', v === 'auto' ? 'Авто — по размеру экрана (сейчас ' + kbwAuto() + ' px)' : v + ' px')); b.appendChild(h('span', 'vv', String(v) === cur ? '✓' : ''));
     b.addEventListener('click', () => { try { localStorage.setItem('matlist.kbdW', String(v)); } catch (e) {} applyKbw(); $('#dKbw').classList.remove('on'); }); list.appendChild(b); }
+  list.appendChild(h('div', 'grp', 'Или потяните полоску на краю клавиатуры; двойное касание по ней — вернуть авто'));
   $('#dKbw').classList.add('on');
 }
 // выпадающий список единиц у ответа: «▾» после результата → единицы той же размерности (с → мин, ч, сут …)
@@ -80,33 +106,53 @@ function valueDim(v) { // размерность ответа — для выб�
   if (v instanceof E.Mat) { const x = v.a.find(y => y instanceof E.Q); return x ? x.d : null; }
   return null;
 }
-function recompute() {
+// Пересчёт листа. Этап 6: пересчёт с первого изменённого региона — всё, что выше, не трогается
+// (состояние окружения перед каждым регионом хранится в recompute.cache.states). Тяжёлые регионы — в фоновом потоке.
+const WSP_STATEFUL = /wsp(set|g(newid|set|add|clear))/i; // настройки WSP меняют общее состояние — такой лист считаем целиком
+function regionSig(r) { return r.kind === 'math' ? 'm' + (r.noeval ? '!' : '') + (r.latex || '') : r.kind === 'plot' ? 'p' : 'x'; }
+function recompute(opts) {
   stopWorker(true); E.setUnits(S.fmt.units !== false); E.setUnitLang(S.fmt.unitLang || 'ru');
   const kk = (S.fmt.units !== false) + (S.fmt.unitLang || 'ru'); if (recompute.units !== kk) { recompute.units = kk; unitsLabel(); buildKeys(); } // лист сменился или переключили единицы
-  const R = new E.SheetRunner(S.origin || 0); envEnd = () => R.env; const list = E.calcOrder(S.regions); const t0 = Date.now(); let from = -1;
-  list.forEach((r, i) => {
-    r._series = null;
+  const list = E.calcOrder(S.regions); const fkey = JSON.stringify([S.fmt, S.origin || 0]);
+  // сколько регионов в начале списка не изменилось с прошлого пересчёта
+  const C0 = recompute.cache; let k = 0;
+  if (C0 && C0.fkey === fkey && !(opts && opts.full) && !list.some(r => r.kind === 'math' && r.latex && WSP_STATEFUL.test(r.latex)))
+    while (k < C0.done && k < list.length && C0.items[k] === list[k] && C0.sigs[k] === regionSig(list[k])) k++;
+  const C = recompute.cache = { fkey, items: list, sigs: list.map(regionSig), states: C0 && k ? C0.states.slice(0, k + 1) : [], done: k };
+  recompute.reused = k;
+  const R = new E.SheetRunner(S.origin || 0); envEnd = () => R.env;
+  if (k) { const st0 = C.states[k]; R.env = st0.env; R.given = st0.given ? st0.given.slice() : null; } else C.states[0] = { env: R.env, given: null };
+  const t0 = Date.now(); let from = -1;
+  for (let i = k; i < list.length; i++) {
+    const r = list[i];
+    if (r.kind === 'plot') { r.env = from < 0 ? R.env : null; r._series = null; }
     if (r.kind === 'math') { r.res = null; r.err = null; r.tbl = false; r.role = null; r.pending = false; r.dim = null; }
-    if (from >= 0) { if (r.kind === 'math') { r.pending = true; } else if (r.kind === 'plot') r.env = null; return; }
+    if (from >= 0) { if (r.kind === 'math') r.pending = true; continue; }
     if (r.kind === 'math') {
       r.before = { env: R.env, given: R.given ? R.given.slice() : null };
-      if (!r.latex || !r.latex.trim() || r.noeval) return; // noeval — формула из .md, показывается как записана
-      let st = null; const snap = { env: R.env, given: R.given ? R.given.slice() : null };
-      E.budget(Math.max(30, Math.min(SYNC_REGION_MS, SYNC_TOTAL_MS - (Date.now() - t0))));
-      try {
-        st = E.parse(r.latex); r.stmt = st.type;
-        applyOut(r, st, R.step(st));
-        if (E.budgetExpired()) throw new E.TimeoutErr();
-      } catch (e) {
-        if (e.timeout || E.budgetExpired()) { from = i; r.pending = true; r.res = null; R.env = snap.env; R.given = snap.given; return; }
-        // «→» над неопределёнными именами: как символьный вывод Mathcad — выражение остаётся как есть
-        if (st && st.sym && st.type === 'eval' && /не определена/.test(e.message || '')) r.res = E.toTex(st.expr);
-        else r.err = e.message || String(e);
-      } finally { E.budget(null); }
-    } else if (r.kind === 'plot') { r.env = R.env; }
-  });
+      if (r.latex && r.latex.trim() && !r.noeval) { // noeval — формула из .md, показывается как записана
+        let st = null; const snap = { env: R.env, given: R.given ? R.given.slice() : null };
+        E.budget(Math.max(30, Math.min(SYNC_REGION_MS, SYNC_TOTAL_MS - (Date.now() - t0))));
+        let timed = false;
+        try {
+          st = E.parse(r.latex); r.stmt = st.type;
+          applyOut(r, st, R.step(st));
+          if (E.budgetExpired()) throw new E.TimeoutErr();
+        } catch (e) {
+          if (e.timeout || E.budgetExpired()) { from = i; r.pending = true; r.res = null; R.env = snap.env; R.given = snap.given; timed = true; }
+          // «→» над неопределёнными именами: как символьный вывод Mathcad — выражение остаётся как есть
+          else if (st && st.sym && st.type === 'eval' && /не определена/.test(e.message || '')) r.res = E.toTex(st.expr);
+          else r.err = e.message || String(e);
+        } finally { E.budget(null); }
+        if (timed) continue;
+      }
+    }
+    C.states[i + 1] = { env: R.env, given: R.given ? R.given.slice() : null }; C.done = i + 1;
+  }
   if (from >= 0) startWorker(list, from, R);
 }
+// что регион i добавил в окружение (для повтора в фоновом потоке без вычислений)
+function regionDelta(i) { const C = recompute.cache, r = C.items[i]; if (r.err || !C.states[i] || !C.states[i + 1]) return null; return E.envDelta(C.states[i].env, C.states[i + 1].env); }
 
 // ───────── фоновый пересчёт ─────────
 let worker = null, wSeq = 0, wRun = null; // wRun: { seq, list, R, byId, next } — что ждём от потока
@@ -126,12 +172,14 @@ function plotMsg(r) { return { id: r.id, kind: 'plot', ys: r.ys, xs: r.xs, xmin:
 function startWorker(list, from, R) {
   const w = ensureWorker();
   if (!w) { // потоков нет — досчитать здесь же, без лимита
-    for (let i = from; i < list.length; i++) { const r = list[i]; r.pending = false; if (r.kind === 'plot') { r.env = R.env; continue; } if (r.kind !== 'math' || !r.latex || r.noeval) continue; r.before = { env: R.env, given: R.given ? R.given.slice() : null }; let st = null; try { st = E.parse(r.latex); applyOut(r, st, R.step(st)); } catch (e) { r.err = e.message || String(e); } }
+    const C = recompute.cache;
+    for (let i = from; i < list.length; i++) { const r = list[i]; r.pending = false; if (r.kind === 'plot') r.env = R.env; else if (r.kind === 'math' && r.latex && !r.noeval) { r.before = { env: R.env, given: R.given ? R.given.slice() : null }; let st = null; try { st = E.parse(r.latex); applyOut(r, st, R.step(st)); } catch (e) { r.err = e.message || String(e); } } C.states[i + 1] = { env: R.env, given: R.given ? R.given.slice() : null }; C.done = i + 1; }
     return;
   }
   const seq = ++wSeq; const byId = new Map(list.map(r => [r.id, r]));
   wRun = { seq, list, R, byId, next: from, t0: Date.now() };
-  const regions = list.map(r => r.kind === 'plot' ? plotMsg(r) : { id: r.id, kind: r.kind, latex: r.kind === 'math' ? r.latex : undefined, noeval: !!r.noeval });
+  // регионы до from уже посчитаны здесь: поток повторяет их по готовым изменениям окружения, не вычисляя (тяжёлые интегралы выше правки не считаются заново)
+  const regions = list.map((r, i) => { if (r.kind === 'plot') return plotMsg(r); const m = { id: r.id, kind: r.kind, latex: r.kind === 'math' ? r.latex : undefined, noeval: !!r.noeval }; if (i < from && r.kind === 'math') { m.pre = true; try { m.delta = regionDelta(i); } catch (e) { m.pre = false; } } return m; });
   w.postMessage({ cmd: 'run', seq, origin: S.origin || 0, fmt: S.fmt, from, regions });
   showBusy(true);
 }
@@ -154,12 +202,14 @@ function onWorker(m) {
     const { list, R } = run;
     while (run.next < list.length) {
       const r = list[run.next];
-      if (r.kind === 'plot') { r.env = R.env; run.next++; continue; }
-      if (r.kind !== 'math') { run.next++; continue; }
+      const markC = () => { const C = recompute.cache; if (C && C.items === list) { C.states[run.next + 1] = { env: R.env, given: R.given ? R.given.slice() : null }; C.done = run.next + 1; } };
+      if (r.kind === 'plot') { r.env = R.env; markC(); run.next++; continue; }
+      if (r.kind !== 'math') { markC(); run.next++; continue; }
       const it = got.get(r.id); if (!it) break;
       r.pending = false; r.before = { env: R.env, given: R.given ? R.given.slice() : null };
       r.res = it.res; r.err = it.err; r.role = it.role; r.tbl = it.tbl; r.stmt = it.stmt; r.dim = it.dim || null;
       if (r.latex && r.latex.trim() && !r.noeval) { try { R.replay(E.parse(r.latex), it.err ? null : it.delta); } catch (e) { /* разбор уже прошёл в потоке */ } }
+      if (recompute.cache && recompute.cache.items === list) { recompute.cache.states[run.next + 1] = { env: R.env, given: R.given ? R.given.slice() : null }; recompute.cache.done = run.next + 1; }
       run.next++;
     }
     render(); updateBusy();
@@ -186,14 +236,47 @@ function unitPart(t) { const m = /=\s*\\left\[(.*)\\right\]\s*$/.exec(t || ''); 
 function shownLatex(r) { let t = r.latex || ''; const m = /=\s*\\left\[(.*)\\right\]\s*$/.exec(t); if (m) t = t.slice(0, m.index) + '='; if (r.defEq) t = t.replace('\\coloneq', '='); return t; }
 // ───────── отрисовка ─────────
 const page = $('#page'), wrap = $('#sheetwrap');
-function render() {
-  page.innerHTML = '';
-  let maxX = 0, maxY = 0;
-  for (const r of S.regions) {
-    const el = regionEl(r); page.appendChild(el);
-    const wide = r.kind === 'plot' || r.kind === 'image'; maxX = Math.max(maxX, r.x + (wide ? r.w + 20 : 200)); maxY = Math.max(maxY, r.y + (wide ? r.h + 60 : 60));
+// Этап 6: регион перерисовывается, только если изменилось то, что на нём видно (остальные элементы переиспользуются —
+// на листе из 800 регионов подтверждение формулы не перестраивает весь лист)
+const RKEY_SKIP = new Set(['x', 'y', 'before', 'envBefore', 'stmt', '_trace', '_el', '_rk', '_seriesWait']);
+function regionKey(r) {
+  const o = { $u: S.fmt.units !== false, $l: S.fmt.unitLang || 'ru' };
+  for (const k in r) { if (RKEY_SKIP.has(k)) continue; const v = r[k]; o[k] = v && typeof v === 'object' && k !== 'env' && k !== '_series' ? (k === 'snap' ? v : JSON.stringify(v)) : v; }
+  if (r.stored != null) o.$f = JSON.stringify(S.fmt);
+  return o;
+}
+function sameKey(a, b) { if (!a || !b) return false; const ka = Object.keys(a); if (ka.length !== Object.keys(b).length) return false; for (const k of ka) if (a[k] !== b[k]) return false; return true; }
+// регион далеко за экраном (больше трёх экранов вниз или двух вверх) — пока пустая заготовка; рисуется при прокрутке (materialize)
+function farAway(r) { const z = S.zoom, top = wrap.scrollTop, hh = wrap.clientHeight || 800; const y = r.y * z; return y > top + hh * 3 + 300 || y < top - hh * 2 - 300; }
+function regionElCached(r, all) {
+  const el = r._el;
+  if (!all && (!el || el._lazy) && farAway(r)) {
+    if (el && el._lazy) { el.style.left = r.x + 'px'; el.style.top = r.y + 'px'; return el; }
+    const ph = h('div', 'rg lazy ' + r.kind); ph.dataset.id = r.id; ph.style.left = r.x + 'px'; ph.style.top = r.y + 'px'; ph._lazy = true; hide(r, '_el', ph); hide(r, '_rk', null); return ph;
   }
-  const cr = h('div', 'cross'); cr.style.left = S.cursor.x + 'px'; cr.style.top = S.cursor.y + 'px'; page.appendChild(cr);
+  const key = regionKey(r);
+  if (el && !el._lazy && !el._dirty && el.contentEditable !== 'true' && !el.classList.contains('editing') && sameKey(r._rk, key)) {
+    el.className = el._cls; el.style.left = r.x + 'px'; el.style.top = r.y + 'px'; return el;
+  }
+  const n = regionEl(r); n._cls = n.className; hide(r, '_rk', key); hide(r, '_el', n); return n;
+}
+function hide(o, k, v) { Object.defineProperty(o, k, { value: v, writable: true, configurable: true, enumerable: false }); } // служебное поле: не сохраняется в лист
+function render(all) {
+  // элементы, которые уже на странице и не изменились, остаются на месте (без снятия и повторной вёрстки)
+  const keep = new Set(); let maxX = 0, maxY = 0; const fresh = [];
+  for (const r of S.regions) {
+    const old = r._el, el = regionElCached(r, all === true);
+    if (el === old && el.parentNode === page) keep.add(el); else { fresh.push(el); keep.add(el); }
+    const wide = r.kind === 'plot' || r.kind === 'image'; maxX = Math.max(maxX, r.x + (wide ? r.w + 20 : 0)); maxY = Math.max(maxY, r.y + (wide ? r.h + 60 : 60));
+  }
+  for (const el of [...page.children]) if (!keep.has(el)) el.remove();
+  if (fresh.length) { const fr = document.createDocumentFragment(); for (const el of fresh) fr.appendChild(el); page.appendChild(fr); }
+  // ширина страницы — по настоящей ширине формул и текста; ширина элемента запоминается (меряются только новые)
+  { let k = 0;
+    for (const r of S.regions) { const el = r._el; if (!el || el._lazy || r.kind === 'plot' || r.kind === 'image') continue;
+      if (el._w == null) { if (!k) k = page.getBoundingClientRect().width / (page.offsetWidth || 1) || 1; el._w = el.getBoundingClientRect().width / k; }
+      maxX = Math.max(maxX, r.x + el._w); } }
+  page.querySelectorAll('.cross').forEach(x => x.remove()); const cr = h('div', 'cross'); cr.style.left = S.cursor.x + 'px'; cr.style.top = S.cursor.y + 'px'; page.appendChild(cr);
   page.style.width = Math.max(S.pageW, maxX + 40) + 'px';
   page.style.height = Math.max(wrap.clientHeight / S.zoom - 24, maxY + 400, S.cursor.y + 300) + 'px';
   page._minH = maxY + 400;
@@ -202,6 +285,17 @@ function render() {
   if (plotEdit) markSel(plotEdit.r);
   save();
 }
+// прокрутка: дорисовать заготовки, которые подошли к экрану (без полного render — редактор формулы не трогается)
+function materialize() {
+  if (!page.querySelector('.rg.lazy')) return;
+  let k = 0, wide = 0;
+  for (const r of S.regions) { const el = r._el; if (!el || !el._lazy || el.parentNode !== page || farAway(r)) continue;
+    const n = regionElCached(r); el.replaceWith(n);
+    if (r.kind !== 'plot' && r.kind !== 'image') { if (!k) k = page.getBoundingClientRect().width / (page.offsetWidth || 1) || 1; n._w = n.getBoundingClientRect().width / k; wide = Math.max(wide, r.x + n._w + 40); } }
+  if (wide > (parseFloat(page.style.width) || 0)) page.style.width = wide + 'px';
+}
+let matPending = false;
+wrap.addEventListener('scroll', () => { if (matPending) return; matPending = true; requestAnimationFrame(() => { matPending = false; materialize(); }); }, { passive: true });
 function markSel(r) { const el = page.querySelector('[data-id="' + r.id + '"]'); if (el) el.classList.add('sel'); }
 function regionEl(r) {
   const el = h('div', 'rg ' + r.kind); el.dataset.id = r.id; el.style.left = r.x + 'px'; el.style.top = r.y + 'px';
@@ -278,7 +372,7 @@ function noNativeKbd(mf) {
   if (ta) ta.setAttribute('inputmode', nativeKbd ? 'text' : 'none');
 }
 function attachEditor(el, r) {
-  el.innerHTML = ''; el.classList.add('sel', 'editing'); el.classList.remove('err');
+  el.innerHTML = ''; el._dirty = true; el.classList.add('sel', 'editing'); el.classList.remove('err');
   const mf = newMf(r.latex); el.appendChild(mf);
   const live = h('span', 'live'); el.appendChild(live);
   active.mf = mf; active.el = el; active.live = live; targetMf = mf;
@@ -351,7 +445,7 @@ let textEl = null; // текстовый регион в режиме правк
 function editText(r, tap) {
   const el = page.querySelector('[data-id="' + r.id + '"]'); if (!el) return;
   el.contentEditable = 'true'; el.setAttribute('inputmode', 'text'); el.spellcheck = true;
-  el.classList.add('sel'); $('#kbd').classList.add('hide'); document.body.classList.add('texting');
+  el._dirty = true; el.classList.add('sel'); $('#kbd').classList.add('hide'); document.body.classList.add('texting');
   textEl = el;
   el.focus();
   const sel = window.getSelection(); let placed = false;
@@ -474,7 +568,7 @@ for (const id of ['#py', '#px']) {
   mf.addEventListener('input', () => { if (plotEdit) { applyPlot(); recompute(); refreshPlot(); } });
 }
 function refreshPlot() { // перерисовать редактируемый график, сохранив выделение и жесты
-  const r = plotEdit.r; const el = plotEl(r); if (!el) return; const n = regionEl(r); n.classList.add('sel'); el.replaceWith(n); armPlot(r);
+  const r = plotEdit.r; const el = plotEl(r); if (!el) return; const n = regionEl(r); n.classList.add('sel'); el.replaceWith(n); r._el = null; armPlot(r);
 }
 ['#pxl', '#pyl', '#pxmin', '#pxmax', '#pymin', '#pymax', '#plogx', '#plogy', '#pfx', '#pfy', '#pdx', '#pdy', '#pgrid', '#pw', '#ph', '#pleg', '#plegpos'].forEach(id => {
   const el = $(id); const ev = (el.tagName === 'SELECT' || el.type === 'checkbox') ? 'change' : 'input';
@@ -692,7 +786,7 @@ function loadOrt() {
   ink.ready.catch(() => { ink.ready = null; });
   return ink.ready;
 }
-function inkSize() { const b = inkCv.getBoundingClientRect(); const d = window.devicePixelRatio || 1; inkCv.width = Math.round(b.width * d); inkCv.height = Math.round(b.height * d); inkDraw(); }
+function inkSize() { const b = inkCv.getBoundingClientRect(); if (b.height < 2) { requestAnimationFrame(inkSize); return; } const d = window.devicePixelRatio || 1; inkCv.width = Math.round(b.width * d); inkCv.height = Math.round(b.height * d); inkDraw(); }
 function inkDraw() {
   const g = inkCv.getContext('2d'); const d = window.devicePixelRatio || 1; g.setTransform(d, 0, 0, d, 0, 0); g.clearRect(0, 0, inkCv.width, inkCv.height);
   g.strokeStyle = '#1d2330'; g.fillStyle = '#1d2330'; g.lineWidth = 2.6; g.lineCap = 'round'; g.lineJoin = 'round';
@@ -886,7 +980,7 @@ document.addEventListener('keydown', ev => {
     const nav = { ArrowLeft: 'moveToPreviousChar', ArrowRight: 'moveToNextChar', ArrowUp: 'moveUp', ArrowDown: 'moveDown', Backspace: 'deleteBackward', Delete: 'deleteForward', Home: 'moveToMathfieldStart', End: 'moveToMathfieldEnd' }[k];
     if (nav && !typeBuf) { ev.preventDefault(); mf.focus(); mf.executeCommand(nav); active.r.latex = mf.getValue('latex'); livePreview(); return; }
   }
-  if (k === 'F9') { ev.preventDefault(); commit(false); recompute(); render(); toast('Лист пересчитан'); return; }
+  if (k === 'F9') { ev.preventDefault(); commit(false); recompute({ full: true }); render(); toast('Лист пересчитан'); return; }
   if ((k === 'Delete' || k === 'Backspace') && barRegion) { ev.preventDefault(); const r = barRegion; S.regions = S.regions.filter(x => x !== r); hideBar(); recompute(); render(); return; }
   if (k === 'Enter' && barRegion) { ev.preventDefault(); const r = barRegion; hideBar(); activate(r); return; }
   const step = ev.shiftKey ? 48 : 12, mv = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[k];
@@ -1026,8 +1120,17 @@ wrap.addEventListener('touchend', ev => { if (pinch && ev.touches.length < 2) { 
 function setKbd(on) { if (document.body.classList.contains('kbd-off') === !on) return; document.body.classList.toggle('kbd-off', !on); }
 tool('#kHide', () => { commit(false); setKbd(false); });
 $('#kShow').addEventListener('click', () => setKbd(true));
-function setZoom(z, light) { S.zoom = Math.max(0.35, Math.min(2.5, z)); page.style.zoom = S.zoom; if (!light) render(); }
-function fitZoom() { let maxX = S.pageW; for (const r of S.regions) maxX = Math.max(maxX, r.x + (r.kind === 'plot' ? r.w : 160)); setZoom((wrap.clientWidth - 24) / (maxX + 20)); }
+function setZoom(z, light, auto) { S.zoom = Math.max(0.35, Math.min(2.5, z)); S.zoomAuto = !!auto; page.style.zoom = S.zoom; if (!light) render(); else materialize(); }
+// масштаб «по ширине экрана»: лист целиком помещается по ширине; крупнее 1.3 сам не увеличивает (на планшете текст не раздувается)
+function fitZoom() {
+  let maxX = S.pageW; const k = page.getBoundingClientRect().width / (page.offsetWidth || 1) || 1; // видимый масштаб страницы (разные WebView по-разному считают zoom)
+  for (const r of S.regions) { const el = page.querySelector('[data-id="' + r.id + '"]'); const bw = el ? el.getBoundingClientRect().width / k : 0; const w = bw > 0 ? bw : (r.kind === 'plot' || r.kind === 'image' ? r.w : 160); maxX = Math.max(maxX, r.x + w); }
+  const cw = wrap.clientWidth; if (cw < 50) return; lastWrapW = cw;
+  setZoom(Math.min(1.3, (cw - 24) / (maxX + 20)), false, true);
+}
+var lastWrapW = 0;
+// поворот экрана / другая ширина — снова по ширине (не во время правки текста: render() сбросил бы ввод)
+window.addEventListener('resize', () => { const w = wrap.clientWidth; if (Math.abs(w - lastWrapW) <= 8 || S.zoomAuto === false) return; const ae = document.activeElement; if (ae && (ae.isContentEditable || ae.tagName === 'MATH-FIELD')) return; fitZoom(); });
 
 // ───────── хранение ─────────
 const TRANSIENT = ['env', 'before', 'envBefore', 'res', 'err', 'stmt', 'tbl', 'role', '_trace'];
@@ -1048,7 +1151,7 @@ function save() {
   if (lastSnap !== null && snap !== lastSnap && !restoring) { undoStack.push(lastSnap); if (undoStack.length > 60) undoStack.shift(); redoStack = []; }
   lastSnap = snap;
   if (!sheetId) return;
-  const okSave = lsSet('matlist.sheet.' + sheetId, { name: S.name, regions: JSON.parse(snap), cursor: S.cursor, fmt: S.fmt, origin: S.origin, zoom: S.zoom, nextId: S.nextId, pageW: S.pageW });
+  const okSave = lsSet('matlist.sheet.' + sheetId, { name: S.name, regions: JSON.parse(snap), cursor: S.cursor, fmt: S.fmt, origin: S.origin, zoom: S.zoom, zoomAuto: S.zoomAuto !== false, nextId: S.nextId, pageW: S.pageW });
   if (!okSave && !save.warned) { save.warned = true; setTimeout(() => toast('Лист не помещается в память приложения — уменьшите или удалите крупные картинки'), 0); }
   const e = lib.list.find(x => x.id === sheetId); if (e) { e.name = S.name; e.updated = Date.now(); } else lib.list.unshift({ id: sheetId, name: S.name, updated: Date.now() });
   lib.current = sheetId; lsSet(LIB, lib);
@@ -1059,9 +1162,9 @@ function sheetRedo() { commit(false); if (!redoStack.length) { toast('Нечег
 function loadSheet(id) {
   const d = lsGet('matlist.sheet.' + id); if (!d) return false;
   active = null; plotEdit = null; targetMf = null; pp.classList.remove('on'); hideBar();
-  Object.assign(S, { fmt: Object.assign({}, E.DEFAULT_FMT), origin: 0 }, d); sheetId = id;
+  Object.assign(S, { fmt: Object.assign({}, E.DEFAULT_FMT), origin: 0, zoomAuto: true }, d); sheetId = id;
   undoStack = []; redoStack = []; lastSnap = null;
-  $('#title').firstChild.textContent = S.name; recompute(); render(); wrap.scrollTop = 0; return true;
+  $('#title').firstChild.textContent = S.name; recompute(); render(); if (S.zoomAuto !== false) fitZoom(); lastWrapW = wrap.clientWidth; wrap.scrollTop = 0; return true;
 }
 function load() {
   const old = lsGet(STORE); // перенос листа из версии 0.1
@@ -1130,7 +1233,7 @@ function zipStore(fname, data) {
   return out;
 }
 function saveXmcd() {
-  commit(false); closePlot();
+  commit(false); closePlot(); render(true);
   // размеры регионов — с экрана (в px при масштабе 1)
   const regs = S.regions.map(r => {
     const el = page.querySelector('[data-id="' + r.id + '"]'); const c = cleanRegion(r);
@@ -1189,14 +1292,14 @@ function saveBinary(name, mime, bytes) {
   catch (e) { toast('Не удалось сохранить файл'); }
 }
 function saveDocx() {
-  commit(false); closePlot(); recompute(); render();
+  commit(false); closePlot(); recompute(); render(true);
   const regs = sorted().filter(r => r.kind !== 'math' || (r.latex && r.latex.trim()));
   const bytes = XP.docx(regs, { title: S.name, png: r => { const im = r.kind === 'plot' ? plotPng(r, 2) : imagePng(r); return im ? { data: b64ToBytes(im.url.split(',')[1]), w: im.w, h: im.h } : null; } });
   saveBinary(fileBase() + '.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', bytes);
   return bytes;
 }
 function printSheetHtml() {
-  commit(false); closePlot(); recompute(); render();
+  commit(false); closePlot(); recompute(); render(true);
   const escH = t => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const regs = [];
   for (const r of sorted()) {
@@ -1226,7 +1329,7 @@ mi('#mPdf', () => savePdf());
 mi('#mFmt', () => {
   $('#fULang').value = S.fmt.unitLang || 'ru'; $('#fDec').value = S.fmt.decimals; $('#fThr').value = S.fmt.expThreshold; $('#fImag').value = S.fmt.imagUnit || 'i'; $('#fOrg').value = S.origin || 0; $('#dFmt').classList.add('on');
 });
-mi('#mFit', () => fitZoom());
+mi('#mFit', () => fitZoom());  // снова «по ширине» и следит за поворотом экрана
 mi('#mKbw', () => openKbw());
 function unitsLabel() { $('#mUnits').textContent = 'Единицы измерения: ' + (S.fmt.units === false ? 'выкл' : 'вкл'); }
 mi('#mUnits', () => { S.fmt.units = S.fmt.units === false; unitsLabel(); buildKeys(); commit(false); recompute(); render(); save();
@@ -1235,7 +1338,7 @@ mi('#m100', () => setZoom(1));
 mi('#mAbout', () => $('#dAbout').classList.add('on'));
 $('#fOk').addEventListener('click', () => { S.fmt.unitLang = $('#fULang').value; S.fmt.decimals = Math.max(0, Math.min(15, parseInt($('#fDec').value) || 3)); S.fmt.expThreshold = Math.max(0, Math.min(15, parseInt($('#fThr').value) || 3)); S.fmt.imagUnit = $('#fImag').value; S.origin = parseInt($('#fOrg').value) || 0; $('#dFmt').classList.remove('on'); recompute(); render(); });
 document.querySelectorAll('.dlg [data-close]').forEach(b => b.addEventListener('click', () => b.closest('.dlg').classList.remove('on')));
-$('#bRecalc').addEventListener('click', () => { commit(false); recompute(); render(); toast('Лист пересчитан'); });
+$('#bRecalc').addEventListener('click', () => { commit(false); recompute({ full: true }); render(); toast('Лист пересчитан'); });
 $('#bZoomIn').addEventListener('click', () => setZoom(S.zoom * 1.2));
 $('#bZoomOut').addEventListener('click', () => setZoom(S.zoom / 1.2));
 // .md → лист: формулы $$…$$ становятся регионами, текст — текстовыми регионами; затем раскладка по реальным размерам
@@ -1252,6 +1355,7 @@ function openMdText(fileName, txt) {
 }
 // строки (регионы с одинаковым y из md.js) укладываются сверху вниз по фактической высоте, подписи единиц — сразу за формулой
 function mdLayout() {
+  render(true);
   const rows = new Map(); for (const r of S.regions) { if (!rows.has(r.y)) rows.set(r.y, []); rows.get(r.y).push(r); }
   const keys = [...rows.keys()].sort((a, b) => a - b); let y = 16, first = true;
   const z0 = page.style.zoom; page.style.zoom = 1; // мерить без масштаба

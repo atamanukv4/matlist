@@ -105,7 +105,8 @@ async function beamSearch(img, beam, maxLen) {
     beams.forEach((h, bi) => { for (const t of topK(P, bi * V, V, beam)) cand.push({ seq: h.seq.concat(t), score: h.score + P[bi * V + t] }); });
     cand.sort((a, b) => b.score - a.score);
     const next = [];
-    for (const c of cand) { if (c.seq[c.seq.length - 1] === EOS) done.push({ seq: c.seq.slice(1, -1), score: c.score / (c.seq.length - 1) }); else next.push(c); if (next.length === beam) break; }
+    for (const c of cand) { if (c.seq.length > 1 && c.seq[c.seq.length - 1] < 3 && c.seq[c.seq.length - 1] !== EOS) continue; // <pad>/<sos> посреди строки — мусор
+      if (c.seq[c.seq.length - 1] === EOS) done.push({ seq: c.seq.slice(1, -1), score: c.score / (c.seq.length - 1) }); else next.push(c); if (next.length === beam) break; }
     beams = next;
     if (done.length >= beam || !beams.length) break;
     const best = Math.max(...done.map(d => d.score)); if (done.length && beams.every(b => b.score / b.seq.length < best)) break;
@@ -113,7 +114,7 @@ async function beamSearch(img, beam, maxLen) {
   if (!done.length) beams.forEach(b => done.push({ seq: b.seq.slice(1), score: b.score / b.seq.length }));
   done.sort((a, b) => b.score - a.score);
   const seen = new Set(), out = [];
-  for (const d of done) { const toks = d.seq.map(i => vocab[i] || '').filter(Boolean); const k = toks.join(' '); if (seen.has(k)) continue; seen.add(k); out.push({ toks, score: d.score }); }
+  for (const d of done) { const toks = d.seq.map(i => vocab[i] || '').filter(t => t && !/^<(pad|sos|eos)>$/.test(t)); if (!toks.length) continue; const k = toks.join(' '); if (seen.has(k)) continue; seen.add(k); out.push({ toks, score: d.score }); }
   return out;
 }
 // несколько прочтений, лучшее первым
