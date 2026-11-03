@@ -20,7 +20,7 @@ function tex(n, p) {
     case 'imag': return String(n.v) + 'i';
     case 'id': if (n.name === '%') return String.fromCharCode(92) + '%';
       if (n.chem || /[·+/()]/.test(n.name)) return '\\text{' + n.name + '}'; // «химическое» имя: p_H2O·l
-      return (n.unit || n.u) && /^[A-Za-zμÅΩ_]+$/.test(n.name) ? '\\mathrm{' + n.name.replace(/_/g, '\\_') + '}' : nameToTex(n.name);
+      return (n.unit || n.u) && /^[A-Za-zА-Яа-яЁёμÅΩ_]+$/.test(n.name) ? '\\mathrm{' + n.name.replace(/_/g, '\\_') + '}' : nameToTex(n.name);
     case 'paren': return '\\left(' + tex(n.e, 0) + '\\right)';
     case 'prog': return progTex(n);
     case 'lset': return '\\left(' + tex(n.lhs, 0) + '\\leftarrow ' + tex(n.rhs, 0) + '\\right)';

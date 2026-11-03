@@ -25,7 +25,7 @@ try:
         R = pg.evaluate('MATLIST_DEBUG.S.regions.map(r => ({id: r.id, kind: r.kind, latex: r.latex, res: r.res, err: r.err, y: r.y}))')
         find = lambda key: next((r for r in R if r.get('latex') and key in r['latex']), None)
         q1 = find('Q_{\\mathrm{в}}\\coloneq'); q2 = find('Q_{\\mathrm{в}}=\\left['); tv = find('t_{\\mathrm{в}}'); vv = find('v_{\\mathrm{в}}')
-        check('Q в СИ: 4,19·10⁵ J', q1 and not q1['err'] and q1['res'] == '4.19\\times10^{5}\\,\\mathrm{J}', q1)
+        check('Q в СИ: 4,19·10⁵ Дж (ответ по-русски)', q1 and not q1['err'] and q1['res'] == '4.19\\times10^{5}\\,\\mathrm{Дж}', q1)
         check('Q в kJ: 419 kJ', q2 and q2['res'] == '419\\,\\mathrm{kJ}', q2)
         check('293,15 K = 20 °C', tv and tv['res'] == '20\\,°C', tv)
         check('100 km / 1,5 hr в м/с', vv and vv['res'] and vv['res'].startswith('18.519'), vv)

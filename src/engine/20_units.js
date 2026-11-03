@@ -88,10 +88,23 @@ function unitOf(name) { const u = UNITS.get(name); return u ? u.v : undefined; }
 const SI_SHOW = [['N', [1, 1, -2]], ['J', [2, 1, -2]], ['W', [2, 1, -3]], ['Pa', [-1, 1, -2]], ['C', [0, 0, 1, 1]], ['V', [2, 1, -3, -1]], ['Ω', [2, 1, -3, -2]], ['F', [-2, -1, 4, 2]], ['S', [-2, -1, 3, 2]], ['H', [2, 1, -2, -2]], ['Wb', [2, 1, -2, -1]], ['T', [0, 1, -2, -1]], ['Hz', [0, 0, -1]]].map(([n, d]) => [n, D0.map((_, k) => d[k] || 0)]);
 const BASE_NAMES = ['m', 'kg', 's', 'A', 'K', 'mol', 'cd'], SHOW_ORDER = [1, 0, 2, 3, 4, 5, 6];
 function powTex(p) { const r = Math.round(p * 1000) / 1000; return r === 1 ? '' : '^{' + r + '}'; }
+// язык единиц в ответе: 'en' — как Mathcad (m, kg, J), 'ru' — русские обозначения (м, кг, Дж) и привычные инженерные сочетания
+let UNIT_LANG = 'en';
+function setUnitLang(l) { UNIT_LANG = l === 'ru' ? 'ru' : 'en'; }
+const RU_NAME = { m: 'м', kg: 'кг', s: 'с', A: 'А', K: 'К', mol: 'моль', cd: 'кд', N: 'Н', J: 'Дж', W: 'Вт', Pa: 'Па', C: 'Кл', V: 'В', 'Ω': 'Ом', F: 'Ф', S: 'См', H: 'Гн', Wb: 'Вб', T: 'Тл', Hz: 'Гц' };
+const unm = n => '\\mathrm{' + (UNIT_LANG === 'ru' ? (RU_NAME[n] || n) : n) + '}';
+// производные единицы теплотехники и механики: показываются сочетанием (Дж/кг, Вт/(м·К)) вместо м²/с² и кг·м/(с³·К)
+const COMBO_SHOW = [
+  [[2, 0, -2], () => '\\frac{' + unm('J') + '}{' + unm('kg') + '}'], [[2, 0, -2, 0, -1], () => '\\frac{' + unm('J') + '}{' + unm('kg') + '\\cdot ' + unm('K') + '}'],
+  [[1, 1, -3, 0, -1], () => '\\frac{' + unm('W') + '}{' + unm('m') + '\\cdot ' + unm('K') + '}'], [[0, 1, -3, 0, -1], () => '\\frac{' + unm('W') + '}{' + unm('m') + '^{2}\\cdot ' + unm('K') + '}'],
+  [[0, 1, -3], () => '\\frac{' + unm('W') + '}{' + unm('m') + '^{2}}'], [[-1, 1, -3], () => '\\frac{' + unm('W') + '}{' + unm('m') + '^{3}}'], [[-1, 1, -1], () => unm('Pa') + '\\cdot ' + unm('s')],
+  [[2, 1, -2, 0, -1], () => '\\frac{' + unm('J') + '}{' + unm('K') + '}'], [[2, 1, -2, 0, 0, -1], () => '\\frac{' + unm('J') + '}{' + unm('mol') + '}'], [[2, 1, -2, 0, -1, -1], () => '\\frac{' + unm('J') + '}{' + unm('mol') + '\\cdot ' + unm('K') + '}'],
+];
 function dimTex(d) {
-  for (const [n, sd] of SI_SHOW) if (dimEq(d, sd)) return '\\mathrm{' + n + '}';
+  for (const [n, sd] of SI_SHOW) if (dimEq(d, sd)) return unm(n);
+  if (UNIT_LANG === 'ru') for (const [cd, f] of COMBO_SHOW) if (dimEq(d, D0.map((_, k) => cd[k] || 0))) return f();
   const num = [], den = [];
-  for (const k of SHOW_ORDER) { const p = d[k]; if (Math.abs(p) < 1e-12) continue; (p > 0 ? num : den).push('\\mathrm{' + BASE_NAMES[k] + '}' + powTex(Math.abs(p))); }
+  for (const k of SHOW_ORDER) { const p = d[k]; if (Math.abs(p) < 1e-12) continue; (p > 0 ? num : den).push(unm(BASE_NAMES[k]) + powTex(Math.abs(p))); }
   const n = num.join('\\cdot ') || '1';
   return den.length ? '\\frac{' + n + '}{' + den.join('\\cdot ') + '}' : n;
 }
@@ -120,3 +133,32 @@ function setUnits(on) { UNITS_ON = on !== false; }
 function unitsOn() { return UNITS_ON; }
 const unitGet = n => (UNITS_ON || n === '%') ? UNITS.get(n) : undefined; // % — всегда 0.01
 const tempGet = n => UNITS_ON ? TEMP[n] : undefined;
+
+// единицы для выбора в ответе: те, у которых та же размерность, что у результата (выпадающий список у ответа)
+const UNIT_CHOICES = [
+  'м', 'см', 'мм', 'км', 'мкм', 'м^{2}', 'см^{2}', 'мм^{2}', 'м^{3}', 'л', 'см^{3}',
+  'кг', 'г', 'т', 'с', 'мин', 'ч', 'сут', 'нед', 'год',
+  'К', '°C', '°F', 'м/с', 'км/ч', 'м/с^{2}',
+  'Н', 'кН', 'МН', 'кгс', 'тс',
+  'Па', 'кПа', 'МПа', 'ГПа', 'бар', 'ат', 'атм', 'кгс/см^{2}', 'мм_рт_ст', 'мм_вод_ст', 'psi',
+  'Дж', 'кДж', 'МДж', 'ГДж', 'кал', 'ккал', 'Гкал', 'кВтч', 'МВтч',
+  'Вт', 'кВт', 'МВт', 'ГВт', 'ккал/ч', 'Гкал/ч', 'лс',
+  'кг/с', 'кг/ч', 'т/ч', 'т/сут', 'м^{3}/с', 'м^{3}/ч', 'л/с', 'л/мин',
+  'кг/м^{3}', 'г/см^{3}', 'м^{3}/кг', 'Дж/кг', 'кДж/кг', 'ккал/кг', 'Дж/(кг·К)', 'кДж/(кг·К)', 'ккал/(кг·°C)'.replace('°C', 'К'),
+  'Вт/м^{2}', 'кВт/м^{2}', 'Вт/(м·К)', 'Вт/(м^{2}·К)', 'Па·с', 'м^{2}/с', 'Н·м', 'кН·м',
+  'Гц', 'об/мин', 'рад', 'град', 'В', 'кВ', 'А', 'кА', 'Ом', 'кОм', 'Кл', 'Ф', 'мкФ', 'Гн', 'Тл', 'моль', 'кмоль',
+];
+function unitChoiceTex(u) { // 'кДж/(кг·К)' → \frac{\mathrm{кДж}}{\mathrm{кг}\cdot \mathrm{К}}
+  if (/^Δ?°[CF]$/.test(u)) return u;
+  const part = t => t.split('·').map(x => { const m = /^([^\^]+)(\^\{.*\})?$/.exec(x); return '\\mathrm{' + m[1] + '}' + (m[2] || ''); }).join('\\cdot ');
+  const i = u.indexOf('/'); if (i < 0) return part(u);
+  return '\\frac{' + part(u.slice(0, i)) + '}{' + part(u.slice(i + 1).replace(/^\(|\)$/g, '')) + '}';
+}
+function unitChoices(d, temp) {
+  const out = []; const seen = new Set();
+  for (const u of UNIT_CHOICES) {
+    let v; try { if (/^Δ?°[CF]$/.test(u)) { if (!dimEq(d, DK)) continue; out.push({ label: u, tex: u }); continue; } v = evalNode(parse(unitChoiceTex(u)).expr, new Env(), new Ctx(new Env())); } catch (e) { continue; }
+    if (dimEq(qd(v), d) && !seen.has(u)) { seen.add(u); out.push({ label: u.replace(/_/g, ' ').replace(/\^\{(\d)\}/g, (m, p) => '⁰¹²³⁴⁵⁶⁷⁸⁹'[p]), tex: unitChoiceTex(u) }); }
+  }
+  return out;
+}

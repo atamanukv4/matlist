@@ -16,7 +16,7 @@ function seriesMsg(seq, r) {
   catch (e) { return { seq, type: 'series', id: r.id, key: MP.seriesKey(r), err: e.message || String(e) }; }
 }
 function run(m) {
-  E.setUnits(!m.fmt || m.fmt.units !== false);
+  E.setUnits(!m.fmt || m.fmt.units !== false); E.setUnitLang((m.fmt && m.fmt.unitLang) || 'ru');
   const R = new E.SheetRunner(m.origin || 0); plotEnv = new Map();
   let buf = [], last = Date.now();
   const flush = () => { if (buf.length) { self.postMessage({ seq: m.seq, type: 'res', items: buf }); buf = []; } last = Date.now(); };
@@ -31,7 +31,7 @@ function run(m) {
       const out = R.step(st);
       if (out.given) it.role = 'given'; else if (out.constraint) it.role = 'cons';
       else if (st.sym && out.value instanceof E.Fn) it.res = E.toTex(st.rhs);
-      else if (out.value !== undefined && out.value !== null) { const v = out.shown !== undefined ? out.shown : out.value; it.res = E.fmtValue(v, m.fmt, out.unitTex); it.tbl = v instanceof E.Rng; }
+      else if (out.value !== undefined && out.value !== null) { const v = out.shown !== undefined ? out.shown : out.value; it.res = E.fmtValue(v, m.fmt, out.unitTex); it.tbl = v instanceof E.Rng; const w = out.value; it.dim = w instanceof E.Q ? w.d : (w instanceof E.Mat && w.a.find(y => y instanceof E.Q) ? w.a.find(y => y instanceof E.Q).d : null); }
       it.delta = E.envDelta(env0, R.env);
     } catch (e) {
       if (st && st.sym && st.type === 'eval' && /не определена/.test(e.message || '')) it.res = E.toTex(st.expr);

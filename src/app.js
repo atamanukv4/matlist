@@ -30,15 +30,31 @@ const SYNC_REGION_MS = 250, SYNC_TOTAL_MS = 700;
 function applyOut(r, st, out) {
   if (out.given) r.role = 'given'; else if (out.constraint) r.role = 'cons';
   else if (st.sym && out.value instanceof E.Fn) r.res = E.toTex(st.rhs); // f(x) := … → — показываем выражение
-  else if (out.value !== undefined && out.value !== null) { const v = out.shown !== undefined ? out.shown : out.value; r.res = E.fmtValue(v, S.fmt, out.unitTex); r.tbl = v instanceof E.Rng; }
+  else if (out.value !== undefined && out.value !== null) { const v = out.shown !== undefined ? out.shown : out.value; r.res = E.fmtValue(v, S.fmt, out.unitTex); r.tbl = v instanceof E.Rng; r.dim = valueDim(out.value); }
+}
+// выпадающий список единиц у ответа: «▾» после результата → единицы той же размерности (с → мин, ч, сут …)
+function openUnits(r) {
+  const list = E.unitChoices(r.dim); const cur = (/=\s*\\left\[(.*)\\right\]\s*$/.exec(r.latex || '') || [])[1] || null;
+  $('#unitHint').textContent = list.length ? 'Ответ будет показан в выбранных единицах (значение не меняется)' : 'Для этой размерности нет готового списка — впишите единицы после «=» вручную';
+  const box = $('#unitList'); box.innerHTML = '';
+  const pick = tex => { const base = (r.latex || '').replace(/=\s*\\left\[.*\\right\]\s*$/, '='); r.latex = tex ? base + '\\left[' + tex + '\\right]' : base; $('#dUnit').classList.remove('on'); recompute(); render(); save(); };
+  const item = (label, tex, on) => { const b = h('button' + '', on ? 'on' : ''); const nm = h('span'); nm.innerHTML = tex ? tex2html(tex) : ''; if (!tex) nm.textContent = label; b.appendChild(nm); const lb = h('span', 'vv', tex && / /.test(label) ? label : ''); b.appendChild(lb); b.addEventListener('click', () => pick(tex)); box.appendChild(b); };
+  item('по умолчанию (СИ)', null, !cur);
+  for (const u of list) item(u.label, u.tex, cur && cur.replace(/\s/g, '') === u.tex.replace(/\s/g, ''));
+  $('#dUnit').classList.add('on');
+}
+function valueDim(v) { // размерность ответа — для выбора единиц в выпадающем списке
+  if (v instanceof E.Q) return v.d;
+  if (v instanceof E.Mat) { const x = v.a.find(y => y instanceof E.Q); return x ? x.d : null; }
+  return null;
 }
 function recompute() {
-  stopWorker(true); E.setUnits(S.fmt.units !== false);
-  if (recompute.units !== (S.fmt.units !== false)) { recompute.units = S.fmt.units !== false; unitsLabel(); buildKeys(); } // лист сменился или переключили единицы
+  stopWorker(true); E.setUnits(S.fmt.units !== false); E.setUnitLang(S.fmt.unitLang || 'ru');
+  const kk = (S.fmt.units !== false) + (S.fmt.unitLang || 'ru'); if (recompute.units !== kk) { recompute.units = kk; unitsLabel(); buildKeys(); } // лист сменился или переключили единицы
   const R = new E.SheetRunner(S.origin || 0); envEnd = () => R.env; const list = E.calcOrder(S.regions); const t0 = Date.now(); let from = -1;
   list.forEach((r, i) => {
     r._series = null;
-    if (r.kind === 'math') { r.res = null; r.err = null; r.tbl = false; r.role = null; r.pending = false; }
+    if (r.kind === 'math') { r.res = null; r.err = null; r.tbl = false; r.role = null; r.pending = false; r.dim = null; }
     if (from >= 0) { if (r.kind === 'math') { r.pending = true; } else if (r.kind === 'plot') r.env = null; return; }
     if (r.kind === 'math') {
       r.before = { env: R.env, given: R.given ? R.given.slice() : null };
@@ -110,7 +126,7 @@ function onWorker(m) {
       if (r.kind !== 'math') { run.next++; continue; }
       const it = got.get(r.id); if (!it) break;
       r.pending = false; r.before = { env: R.env, given: R.given ? R.given.slice() : null };
-      r.res = it.res; r.err = it.err; r.role = it.role; r.tbl = it.tbl; r.stmt = it.stmt;
+      r.res = it.res; r.err = it.err; r.role = it.role; r.tbl = it.tbl; r.stmt = it.stmt; r.dim = it.dim || null;
       if (r.latex && r.latex.trim() && !r.noeval) { try { R.replay(E.parse(r.latex), it.err ? null : it.delta); } catch (e) { /* разбор уже прошёл в потоке */ } }
       run.next++;
     }
@@ -162,7 +178,7 @@ function regionEl(r) {
     if (r.err) el.classList.add('err');
     if (r.role) el.classList.add(r.role);
     const eq = h('span', 'eq'); eq.innerHTML = tex2html(shownLatex(r) || '\\placeholder{}'); el.appendChild(eq);
-    if (r.res) { const rs = h('span', 'res' + (r.tbl ? ' tbl' : '')); rs.innerHTML = tex2html(r.res); el.appendChild(rs); }
+    if (r.res) { const rs = h('span', 'res' + (r.tbl ? ' tbl' : '')); rs.innerHTML = tex2html(r.res); el.appendChild(rs); if (r.dim && S.fmt.units !== false && /=\s*(\\left\[.*\\right\])?\s*$/.test(r.latex || '')) { const ub = h('span', 'ubtn', '▾'); ub.title = 'Единицы ответа'; el.appendChild(ub); } }
     if (r.pending) { el.classList.add('pending'); const m = h('span', 'emsg wait', 'считается…'); el.appendChild(m); }
     if (r.err) {
       if (r.stored != null && /=\s*$/.test(shownLatex(r))) { const rs = h('span', 'res'); rs.style.color = 'var(--stored)'; const sv = Array.isArray(r.stored) ? new E.Mat(r.stored.length, 1, r.stored) : r.stored; rs.innerHTML = tex2html(E.fmtValue(sv, S.fmt, unitPart(r.latex))); el.appendChild(rs); const m = h('span', 'smsg', 'значение из файла · ' + r.err); el.appendChild(m); }
@@ -213,7 +229,14 @@ function newMf(latex) {
   try { mf.inlineShortcuts = Object.assign({}, mf.inlineShortcuts, { ':': '\\coloneq' }); } catch (e) {}
   mf.value = latex || '';
   mf.addEventListener('focusin', () => { targetMf = mf; noNativeKbd(mf); });
-  mf.addEventListener('keydown', ev => { if (ev.key === 'Enter') { ev.preventDefault(); commit(true); } });
+  mf.addEventListener('keydown', ev => { // внешняя клавиатура в формуле — клавиши как в Mathcad
+    if (ev.key === 'Enter') { ev.preventDefault(); commit(true); return; }
+    if (ev.key === 'Escape') { ev.preventDefault(); commit(false); return; }
+    if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
+    if (ev.key === '[') { ev.preventDefault(); insert(mf, '#@_{#?}'); return; } // [ — индекс массива
+    if (ev.key === '.' ) { let b = ''; try { b = mf.getValue(0, mf.position, 'latex'); } catch (e) {} if (/[A-Za-zА-Яа-яЁё}]$/.test(b) && !/\\[a-z]+$/.test(b)) { ev.preventDefault(); insert(mf, '#@_{\\mathrm{#?}}'); } return; } // x. — подпись-индекс
+    if (ev.key === '"' ) { ev.preventDefault(); insert(mf, '\\text{"#0"}'); return; }
+  });
   mf.addEventListener('input', () => { if (active && active.mf === mf) { active.r.latex = mf.getValue('latex'); livePreview(); updateSugg(mf); } });
   return mf;
 }
@@ -314,7 +337,7 @@ function editText(r, tap) {
 // ───────── панель региона ─────────
 const bar = $('#rbar');
 function showBar(el, r) {
-  bar.innerHTML = ''; bar.style.display = 'flex';
+  barRegion = r; bar.innerHTML = ''; bar.style.display = 'flex';
   const b = (t, cls, fn) => { const x = h('button', cls, t); x.addEventListener('pointerdown', ev => { ev.preventDefault(); ev.stopPropagation(); fn(); }); bar.appendChild(x); };
   b('Переместить', '', () => { moveMode = r; hideBar(); if (active) commitKeep(); toast('Коснитесь места на листе, куда перенести'); });
   b('Копия', '', () => { if (active) commitKeep(); const c = JSON.parse(JSON.stringify(cleanRegion(r))); c.id = S.nextId++; c.y = r.y + (el.offsetHeight || 24) + 12; S.regions.push(c); recompute(); render(); });
@@ -358,8 +381,9 @@ function placeBar(er, el) {
   bar.style.left = (left + wrap.scrollLeft) + 'px'; bar.style.top = (top + wrap.scrollTop) + 'px';
 }
 function commitKeep() { if (!active) return; const r = active.r; if (active.mf) r.latex = active.mf.getValue('latex').trim(); active = null; targetMf = null; recompute(); }
-function hideBar() { bar.style.display = 'none'; bar.classList.remove('pal'); if (barRO) { barRO.disconnect(); barRO = null; } barEl = null; }
+function hideBar() { barRegion = null; bar.style.display = 'none'; bar.classList.remove('pal'); if (barRO) { barRO.disconnect(); barRO = null; } barEl = null; }
 let clip = null; // скопированный регион
+let barRegion = null; // регион, выбранный касанием, удержанием или правой кнопкой (для Delete, Ctrl+C)
 
 // ───────── редактор графика ─────────
 const pp = $('#plotpanel');
@@ -558,12 +582,15 @@ const TABS = {
   'abc': 'q w e r t y u i o p a s d f g h j k l ⇧ z x c v b n m ′ ⌫ ⇧'.split(' '),
   'абв': 'й ц у к е н г ш щ з х ф ы в а п р о л д ж э я ч с м и т ь б ю ё ъ ⇧'.split(' '),
 };
+// вкладка «ед.» с русскими обозначениями (когда ответ показывается по-русски)
+const UNITS_RU_KEYS = ['м', 'мм', 'см', 'км', 'кг', 'г', 'т', 'с', 'мин', 'ч', 'сут', 'К', '°C', 'Δ°C', 'Н', 'кН', 'Па', 'кПа', 'МПа', 'бар', 'ат', 'атм', 'Дж', 'кДж', 'МДж', 'Вт', 'кВт', 'МВт', 'Гкал', 'л', 'моль', '°'].map(u => U(u)).concat([
+  { l: 'м²', t: '\\,\\mathrm{м}^{2}', cls: 'unit' }, { l: 'м³', t: '\\,\\mathrm{м}^{3}', cls: 'unit' }, { l: '= [ед]', t: '=\\left[#0\\right]', cls: 'op sm' }, A('→', 'arrowEval', 'op')]);
 const GREEKTEX = { α: '\\alpha', β: '\\beta', γ: '\\gamma', δ: '\\delta', ε: '\\varepsilon', ζ: '\\zeta', η: '\\eta', θ: '\\theta', ϑ: '\\vartheta', λ: '\\lambda', μ: '\\mu', ν: '\\nu', ξ: '\\xi', π: '\\pi', ρ: '\\rho', σ: '\\sigma', τ: '\\tau', φ: '\\varphi', χ: '\\chi', ψ: '\\psi', ω: '\\omega', Γ: '\\Gamma', Δ: '\\Delta', Θ: '\\Theta', Λ: '\\Lambda', Σ: '\\Sigma', Φ: '\\Phi', Ψ: '\\Psi', Ω: '\\Omega' };
 let curTab = '123';
 function buildKeys() {
   const tabs = $('#tabs'); tabs.innerHTML = '';
   for (const t of Object.keys(TABS)) { if (t === 'ед.' && S.fmt.units === false) { if (curTab === t) curTab = '123'; continue; } const b = h('button', t === curTab ? 'on' : '', t); b.addEventListener('pointerdown', ev => { ev.preventDefault(); curTab = t; buildKeys(); }); tabs.appendChild(b); }
-  const keys = $('#keys'); keys.innerHTML = ''; const list = TABS[curTab];
+  const keys = $('#keys'); keys.innerHTML = ''; const list = curTab === 'ед.' && (S.fmt.unitLang || 'ru') === 'ru' ? UNITS_RU_KEYS : TABS[curTab];
   const letters = typeof list[0] === 'string'; keys.className = 'keys' + (letters ? ' c10' : '');
   for (const k of list) {
     const key = letters ? letterKey(k) : k;
@@ -714,6 +741,10 @@ tool('#kUndo', () => { if (targetMf && document.body.contains(targetMf)) { targe
 tool('#kRedo', () => { if (targetMf && document.body.contains(targetMf)) { targetMf.focus(); targetMf.executeCommand('redo'); if (active && active.mf === targetMf) { active.r.latex = targetMf.getValue('latex'); livePreview(); } } else sheetRedo(); });
 nav('#kSel', 'extendSelectionBackward');
 tool('#kVars', () => openVars());
+// альбомная ориентация: сторона клавиатуры запоминается (правша / левша)
+function setKbdSide(left) { document.body.classList.toggle('kbd-left', !!left); try { localStorage.setItem('matlist.kbdLeft', left ? '1' : ''); } catch (e) {} }
+try { setKbdSide(localStorage.getItem('matlist.kbdLeft') === '1'); } catch (e) {}
+tool('#kSide', () => { setKbdSide(!document.body.classList.contains('kbd-left')); toast(document.body.classList.contains('kbd-left') ? 'Клавиатура слева' : 'Клавиатура справа'); });
 
 // ───────── переменные листа: подсказки при наборе (выпадающая строка) и список по кнопке «x=…» ─────────
 let envEnd = () => null; // окружение в конце листа (после пересчёта)
@@ -778,6 +809,67 @@ tool('#kOk', () => { if (plotEdit) { closePlot(); return; } commit(true); });
 tool('#kText', () => { commit(false); closePlot(); const r = createAt('text', { text: '' }); render(); editText(r); });
 tool('#kPlot', () => { commit(false); closePlot(); const r = createAt('plot', { ys: '', xs: '', w: 300, h: 190 }); recompute(); openPlot(r); });
 
+// ───────── внешняя клавиатура вне формулы: курсор-крестик стрелками, набор сразу создаёт формулу, горячие клавиши ─────────
+function dialogOpen() { return !!document.querySelector('.dlg.on, .menu.on, .inkpanel.on, .full.on'); }
+document.addEventListener('keydown', ev => {
+  const t = ev.target; if (t && (t.closest && (t.closest('math-field') || t.closest('[contenteditable=true]')) || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+  const ctrl = ev.ctrlKey || ev.metaKey, k = ev.key;
+  if (k === 'Escape') { if (dialogOpen()) { document.querySelectorAll('.dlg.on').forEach(d => d.classList.remove('on')); $('#menu').classList.remove('on'); } else { commit(false); hideBar(); closePlot(); } return; }
+  if (dialogOpen()) return;
+  if (ctrl) {
+    const L = k.toLowerCase();
+    if (L === 'z' || L === 'я') { ev.preventDefault(); ev.shiftKey ? sheetRedo() : sheetUndo(); return; }
+    if (L === 'y' || L === 'н') { ev.preventDefault(); sheetRedo(); return; }
+    if (L === 's' || L === 'ы') { ev.preventDefault(); saveXmcd(); return; }
+    if (L === 'o' || L === 'щ') { ev.preventDefault(); $('#file').click(); return; }
+    if ((L === 'c' || L === 'с') && barRegion) { ev.preventDefault(); clip = JSON.parse(JSON.stringify(cleanRegion(barRegion))); toast('Скопировано — Ctrl+V вставит у крестика'); return; }
+    if ((L === 'x' || L === 'ч') && barRegion) { ev.preventDefault(); const r = barRegion; clip = JSON.parse(JSON.stringify(cleanRegion(r))); S.regions = S.regions.filter(x => x !== r); hideBar(); recompute(); render(); return; }
+    if ((L === 'v' || L === 'м') && clip) { ev.preventDefault(); const c = JSON.parse(JSON.stringify(clip)); c.id = S.nextId++; c.x = S.cursor.x; c.y = S.cursor.y; S.regions.push(c); recompute(); render(); return; }
+    if (k === '=' || k === '+') { ev.preventDefault(); setZoom(S.zoom * 1.15); return; }
+    if (k === '-') { ev.preventDefault(); setZoom(S.zoom / 1.15); return; }
+    if (k === '0') { ev.preventDefault(); setZoom(1); return; }
+    return;
+  }
+  if (k === 'F9') { ev.preventDefault(); commit(false); recompute(); render(); toast('Лист пересчитан'); return; }
+  if ((k === 'Delete' || k === 'Backspace') && barRegion) { ev.preventDefault(); const r = barRegion; S.regions = S.regions.filter(x => x !== r); hideBar(); recompute(); render(); return; }
+  if (k === 'Enter' && barRegion) { ev.preventDefault(); const r = barRegion; hideBar(); activate(r); return; }
+  const step = ev.shiftKey ? 48 : 12, mv = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[k];
+  if (mv) { ev.preventDefault(); hideBar(); S.cursor = { x: Math.max(0, S.cursor.x + mv[0]), y: Math.max(0, S.cursor.y + mv[1]) }; render(); keepCursorVisible(); return; }
+  if (k === 'Enter' && typeBuf) { ev.preventDefault(); typeBuf.push('\n'); return; }
+  if (k === 'Enter') { ev.preventDefault(); S.cursor = { x: S.cursor.x, y: S.cursor.y + 30 }; render(); keepCursorVisible(); return; }
+  if (k === '"') { ev.preventDefault(); const r = createAt('text', { text: '' }); render(); editText(r); return; } // " — текст, как в Mathcad
+  if (k.length === 1 && !ev.altKey && k !== ' ') { // набор с клавиатуры сразу открывает новую формулу у крестика
+    ev.preventDefault();
+    if (typeBuf) { typeBuf.push(k); return; } // поле формулы ещё не получило фокус — копим нажатия
+    hideBar(); typeBuf = [k]; const mf = ensureTarget(); if (!mf) { typeBuf = null; return; }
+    setTimeout(() => {
+      const keys = typeBuf; typeBuf = null; mf.focus(); let enter = false;
+      for (const c of keys) {
+        if (c === '\n') { enter = true; break; }
+        if (c === '[') insert(mf, '#@_{#?}'); else if (c === ':') insert(mf, '\\coloneq '); else { mf._typed = true; mf.executeCommand(['typedText', c]); } // как при обычном наборе: * → ·, / → дробь
+      }
+      if (active && active.mf === mf) { active.r.latex = mf.getValue('latex'); livePreview(); updateSugg(mf); }
+      if (enter) commit(true);
+    }, 0);
+    return;
+  }
+});
+let typeBuf = null; // нажатия, пришедшие до того, как новая формула получила фокус
+function keepCursorVisible() {
+  const x = S.cursor.x * S.zoom, y = S.cursor.y * S.zoom;
+  if (y < wrap.scrollTop + 20) wrap.scrollTop = y - 40; else if (y > wrap.scrollTop + wrap.clientHeight - 40) wrap.scrollTop = y - wrap.clientHeight + 80;
+  if (x < wrap.scrollLeft + 20) wrap.scrollLeft = x - 40; else if (x > wrap.scrollLeft + wrap.clientWidth - 40) wrap.scrollLeft = x - wrap.clientWidth + 80;
+}
+// мышь: правая кнопка — меню региона или листа, Ctrl+колесо — масштаб, перетаскивание региона — сразу, без удержания
+let lastPtr = 'touch'; page.addEventListener('pointerdown', ev => { lastPtr = ev.pointerType; }, true);
+page.addEventListener('contextmenu', ev => {
+  if (lastPtr !== 'mouse') return; // на сенсоре долгое касание обрабатывается своим таймером
+  if (ev.target.closest('math-field') || ev.target.closest('[contenteditable=true]')) return;
+  const rgEl = ev.target.closest('.rg'); const r = rgEl ? S.regions.find(x => x.id == rgEl.dataset.id) : null;
+  if (r) { commit(false); render(); const el = page.querySelector('[data-id="' + r.id + '"]'); if (el) { el.classList.add('sel'); showBar(el, r); } }
+  else ctxMenu({ pos: pagePos(ev) });
+});
+wrap.addEventListener('wheel', ev => { if (!(ev.ctrlKey || ev.metaKey)) return; ev.preventDefault(); setZoom(S.zoom * (ev.deltaY < 0 ? 1.1 : 1 / 1.1)); }, { passive: false });
 // ───────── касания листа: курсор, выбор, перенос, перетаскивание, масштаб щипком ─────────
 function pagePos(ev) { const r = page.getBoundingClientRect(); return { x: (ev.clientX - r.left) / S.zoom, y: (ev.clientY - r.top) / S.zoom }; }
 let pd = null, dragRaf = 0;
@@ -788,7 +880,7 @@ page.addEventListener('pointerdown', ev => {
   if (ev.pointerType === 'mouse' && ev.button !== 0) return;
   if (pd && pd.drag) return;
   const rgEl = ev.target.closest('.rg'); const r = rgEl ? S.regions.find(x => x.id == rgEl.dataset.id) : null;
-  pd = { x: ev.clientX, y: ev.clientY, cx: ev.clientX, cy: ev.clientY, r, el: rgEl, t: Date.now(), drag: false, pos: pagePos(ev) };
+  pd = { x: ev.clientX, y: ev.clientY, cx: ev.clientX, cy: ev.clientY, r, el: rgEl, t: Date.now(), drag: false, pos: pagePos(ev), ubtn: !!ev.target.closest('.ubtn') };
   pd.timer = setTimeout(() => {
     if (!pd || pd.moved || pinch) return;
     if (pd.r) startDrag(); else { const p = pd; pd = null; ctxMenu(p); }
@@ -823,7 +915,7 @@ function dragTo() {
   pd.el.style.left = pd.r.x + 'px'; pd.el.style.top = pd.r.y + 'px';
 }
 function endDrag() {
-  const p = pd; pd = null; cancelAnimationFrame(dragRaf); document.body.classList.remove('dragging');
+  dragTo(); const p = pd; pd = null; cancelAnimationFrame(dragRaf); document.body.classList.remove('dragging');
   p.el.classList.remove('drag');
   const moved = Math.hypot(p.r.x - p.start.x, p.r.y - p.start.y) > 4;
   if (!moved) { // удержание без движения — меню региона
@@ -837,7 +929,7 @@ page.addEventListener('pointermove', ev => {
   if (!pd) return;
   pd.cx = ev.clientX; pd.cy = ev.clientY;
   if (pd.drag) { ev.preventDefault(); return; }
-  if (Math.hypot(ev.clientX - pd.x, ev.clientY - pd.y) > 8) { clearTimeout(pd.timer); pd.moved = true; }
+  if (Math.hypot(ev.clientX - pd.x, ev.clientY - pd.y) > 8) { clearTimeout(pd.timer); if (ev.pointerType === 'mouse' && pd.r && !pd.ubtn) { startDrag(); return; } pd.moved = true; } // мышью регион тянется сразу
 });
 page.addEventListener('pointerup', ev => {
   if (!pd) return; clearTimeout(pd.timer);
@@ -845,6 +937,7 @@ page.addEventListener('pointerup', ev => {
   const p = pd; pd = null;
   if (p.moved || pinch) return;
   if (moveMode) { const pos = pagePos(ev); moveMode.x = Math.round(pos.x); moveMode.y = Math.round(pos.y); moveMode = null; recompute(); render(); return; }
+  if (p.r && p.ubtn) { openUnits(p.r); return; }
   if (p.r) { activate(p.r, { x: ev.clientX, y: ev.clientY }); return; }
   commit(false); closePlot(); hideBar();
   S.cursor = { x: Math.round(p.pos.x), y: Math.round(p.pos.y) }; render();
@@ -1074,7 +1167,7 @@ function savePdf() {
 mi('#mDocx', () => saveDocx());
 mi('#mPdf', () => savePdf());
 mi('#mFmt', () => {
-  $('#fDec').value = S.fmt.decimals; $('#fThr').value = S.fmt.expThreshold; $('#fImag').value = S.fmt.imagUnit || 'i'; $('#fOrg').value = S.origin || 0; $('#dFmt').classList.add('on');
+  $('#fULang').value = S.fmt.unitLang || 'ru'; $('#fDec').value = S.fmt.decimals; $('#fThr').value = S.fmt.expThreshold; $('#fImag').value = S.fmt.imagUnit || 'i'; $('#fOrg').value = S.origin || 0; $('#dFmt').classList.add('on');
 });
 mi('#mFit', () => fitZoom());
 function unitsLabel() { $('#mUnits').textContent = 'Единицы измерения: ' + (S.fmt.units === false ? 'выкл' : 'вкл'); }
@@ -1082,7 +1175,7 @@ mi('#mUnits', () => { S.fmt.units = S.fmt.units === false; unitsLabel(); buildKe
   toast(S.fmt.units === false ? 'Единицы выключены: м, кг, с — обычные имена, ответы без единиц' : 'Единицы включены'); });
 mi('#m100', () => setZoom(1));
 mi('#mAbout', () => $('#dAbout').classList.add('on'));
-$('#fOk').addEventListener('click', () => { S.fmt.decimals = Math.max(0, Math.min(15, parseInt($('#fDec').value) || 3)); S.fmt.expThreshold = Math.max(0, Math.min(15, parseInt($('#fThr').value) || 3)); S.fmt.imagUnit = $('#fImag').value; S.origin = parseInt($('#fOrg').value) || 0; $('#dFmt').classList.remove('on'); recompute(); render(); });
+$('#fOk').addEventListener('click', () => { S.fmt.unitLang = $('#fULang').value; S.fmt.decimals = Math.max(0, Math.min(15, parseInt($('#fDec').value) || 3)); S.fmt.expThreshold = Math.max(0, Math.min(15, parseInt($('#fThr').value) || 3)); S.fmt.imagUnit = $('#fImag').value; S.origin = parseInt($('#fOrg').value) || 0; $('#dFmt').classList.remove('on'); recompute(); render(); });
 document.querySelectorAll('.dlg [data-close]').forEach(b => b.addEventListener('click', () => b.closest('.dlg').classList.remove('on')));
 $('#bRecalc').addEventListener('click', () => { commit(false); recompute(); render(); toast('Лист пересчитан'); });
 $('#bZoomIn').addEventListener('click', () => setZoom(S.zoom * 1.2));

@@ -69,6 +69,7 @@
     <button id="kRight" title="Вправо">→</button><button id="kEnd" title="В конец">⇥</button>
     <button id="kSel" class="sm" title="Расширить выделение влево">выдел.</button>
     <button id="kVars" class="sm vars" title="Переменные листа — вставить в формулу">x=…</button>
+    <button id="kSide" class="sm side" title="Клавиатура слева / справа">⇄</button>
   </div>
   <div class="sugg" id="sugg"></div>
   <div class="tools">
@@ -110,6 +111,12 @@
 <input type="file" id="file" accept=".xmcd,.md,.markdown,.txt,application/xml,text/xml,text/markdown,text/plain,*/*" hidden>
 <input type="file" id="imgfile" accept="image/*" hidden>
 <div class="full" id="full"><div class="fullbar"><span id="fullTitle"></span><button id="fullFit" class="sm">Сбросить вид</button><button id="fullClose" class="pri">Закрыть</button></div><canvas id="fullcv"></canvas><p class="hint">Палец — двигать, щипок — масштаб, удержание — координаты точки, двойной тап — сброс</p></div>
+<div class="dlg" id="dUnit"><div class="box varbox">
+  <h3>Единицы ответа</h3>
+  <p id="unitHint"></p>
+  <div id="unitList" class="varlist unitlist"></div>
+  <div class="btns"><button data-close>Закрыть</button></div>
+</div></div>
 <div class="dlg" id="dVars"><div class="box varbox">
   <h3>Переменные листа</h3>
   <input id="varQ" type="search" placeholder="Поиск по имени" autocomplete="off">
@@ -123,6 +130,7 @@
   <div class="f"><span>Порог экспоненты (10ⁿ)</span><input id="fThr" type="number" min="0" max="15"></div>
   <div class="f"><span>Мнимая единица</span><select id="fImag"><option>i</option><option>j</option></select></div>
   <div class="f"><span>ORIGIN (первый индекс)</span><input id="fOrg" type="number" min="-100" max="100"></div>
+  <div class="f"><span>Единицы в ответе</span><select id="fULang"><option value="ru">русские (м, кг, Дж)</option><option value="en">как в Mathcad (m, kg, J)</option></select></div>
   <div class="btns"><button data-close>Отмена</button><button class="pri" id="fOk">Применить</button></div>
 </div></div>
 <div class="dlg" id="dMat"><div class="box">
