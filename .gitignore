@@ -10,3 +10,4 @@ android/local.properties
 .idea/
 test/fixtures/*.xmcd
 model/
+corpus/

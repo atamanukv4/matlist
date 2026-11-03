@@ -6,6 +6,8 @@ const V = require('./node_modules/mathlive/package.json').version;
 const CDN = `https://cdn.jsdelivr.net/npm/mathlive@${V}`;
 const rd = p => fs.readFileSync(path.join(__dirname, p), 'utf8');
 const ML = 'node_modules/mathlive/';
+// ядро: блоки src/engine/*.js склеиваются по порядку имён (см. ARCHITECTURE.md)
+const engineSrc = () => fs.readdirSync(path.join(__dirname, 'src/engine')).filter(f => /^\d\d_.*\.js$/.test(f)).sort().map(f => rd('src/engine/' + f)).join('\n');
 function build(mode) {
   let html = rd('src/index.html');
   const put = (marker, content, tags) => { if (!tags && content.includes('</script')) throw new Error('</script> в ' + marker); html = html.split(marker).join(content); };
@@ -17,7 +19,7 @@ function build(mode) {
   put('<!--MATHLIVE_JS-->', `<script>window.MATLIST_FONTS=${JSON.stringify(fontsDir)};</script>\n<script src="${mode === 'web' ? CDN + '/mathlive.min.js' : 'mathlive.min.js'}"></script>`, true);
   put('/*WSPD_JS*/', rd('src/wsp_data.js'));
   put('/*WSP_JS*/', rd('src/wsp.js'));
-  put('/*ENGINE_JS*/', rd('src/engine.js'));
+  put('/*ENGINE_JS*/', engineSrc());
   put('/*XTPL_JS*/', rd('src/xmcd_template.js'));
   put('/*MCPLOT_JS*/', rd('src/mcplot.js'));
   put('/*XMCD_JS*/', rd('src/xmcd.js'));
