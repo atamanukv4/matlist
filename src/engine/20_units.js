@@ -113,3 +113,10 @@ function inUnits(v, u, uTex) {
 class MathErr extends Error { constructor(msg, node) { super(msg); this.node = node; } }
 function err(m, n) { return new MathErr(m, n); }
 
+
+// единицы можно выключить (настройка листа): тогда м, кг, s — обычные имена, а ответ — без единиц
+let UNITS_ON = true;
+function setUnits(on) { UNITS_ON = on !== false; }
+function unitsOn() { return UNITS_ON; }
+const unitGet = n => (UNITS_ON || n === '%') ? UNITS.get(n) : undefined; // % — всегда 0.01
+const tempGet = n => UNITS_ON ? TEMP[n] : undefined;

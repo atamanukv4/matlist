@@ -98,7 +98,7 @@ math-field::part(virtual-keyboard-toggle),math-field::part(menu-toggle){display:
 .kbd.hide{display:none}
 .tools{display:flex;gap:4px;margin-bottom:4px}
 .tools.nav button{height:32px;font-size:15px;background:var(--page)}
-.tools.nav button.sm{font-size:12px}
+.tools.nav button.sm{font-size:11px}
 .tools button{flex:1;height:36px;border:0;border-radius:8px;background:var(--key-alt);font-size:14px;cursor:pointer;min-width:0;padding:0 2px}
 .tools button.w{flex:1.6;font-size:13px}
 .tools button.ok{background:var(--accent);color:#fff;font-weight:600}
@@ -212,3 +212,17 @@ body.dragging .sheetwrap{touch-action:none}
   box-shadow: 0 4px 14px rgba(0,0,0,.25); transition: opacity .18s, transform .18s; z-index: 50; }
 .busy.on { opacity: 1; transform: translate(-50%, 0); pointer-events: auto; }
 .busy button { background: #ef4444; color: #fff; border: 0; border-radius: 12px; padding: 4px 12px; font-size: 13px; }
+
+/* переменные листа: подсказки при наборе и список */
+.tools.nav button.vars{flex:1.1;color:var(--accent);font-weight:600}
+.sugg{display:none;gap:6px;overflow-x:auto;padding:0 2px 4px;scrollbar-width:none}
+.sugg.on{display:flex}
+.sugg button{flex:0 0 auto;border:1px solid var(--line);background:var(--page);border-radius:14px;padding:3px 10px;height:30px;font-size:14px;display:flex;align-items:center;gap:6px;cursor:pointer;max-width:70vw}
+.sugg button small{color:var(--muted,#667085);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:120px}
+.dlg .box.varbox{max-width:520px;max-height:calc(100vh - 40px);display:flex;flex-direction:column}
+.dlg #varQ{width:100%;margin-bottom:6px}
+.varlist{overflow:auto;flex:1;min-height:60px;border-top:1px solid var(--line)}
+.varlist button{display:flex;width:100%;align-items:center;justify-content:space-between;gap:10px;border:0;border-bottom:1px solid var(--line);background:none;padding:9px 4px;text-align:left;cursor:pointer;font-size:15px}
+.varlist button:active{background:var(--key-alt)}
+.varlist .vv{color:var(--muted,#667085);font-size:12px;max-width:55%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:right}
+.varlist .grp{font-size:12px;color:var(--muted,#667085);padding:8px 4px 2px;text-transform:uppercase;letter-spacing:.04em}

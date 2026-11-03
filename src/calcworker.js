@@ -16,6 +16,7 @@ function seriesMsg(seq, r) {
   catch (e) { return { seq, type: 'series', id: r.id, key: MP.seriesKey(r), err: e.message || String(e) }; }
 }
 function run(m) {
+  E.setUnits(!m.fmt || m.fmt.units !== false);
   const R = new E.SheetRunner(m.origin || 0); plotEnv = new Map();
   let buf = [], last = Date.now();
   const flush = () => { if (buf.length) { self.postMessage({ seq: m.seq, type: 'res', items: buf }); buf = []; } last = Date.now(); };

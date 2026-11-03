@@ -33,8 +33,9 @@ function applyOut(r, st, out) {
   else if (out.value !== undefined && out.value !== null) { const v = out.shown !== undefined ? out.shown : out.value; r.res = E.fmtValue(v, S.fmt, out.unitTex); r.tbl = v instanceof E.Rng; }
 }
 function recompute() {
-  stopWorker(true);
-  const R = new E.SheetRunner(S.origin || 0); const list = E.calcOrder(S.regions); const t0 = Date.now(); let from = -1;
+  stopWorker(true); E.setUnits(S.fmt.units !== false);
+  if (recompute.units !== (S.fmt.units !== false)) { recompute.units = S.fmt.units !== false; unitsLabel(); buildKeys(); } // лист сменился или переключили единицы
+  const R = new E.SheetRunner(S.origin || 0); envEnd = () => R.env; const list = E.calcOrder(S.regions); const t0 = Date.now(); let from = -1;
   list.forEach((r, i) => {
     r._series = null;
     if (r.kind === 'math') { r.res = null; r.err = null; r.tbl = false; r.role = null; r.pending = false; }
@@ -213,7 +214,7 @@ function newMf(latex) {
   mf.value = latex || '';
   mf.addEventListener('focusin', () => { targetMf = mf; noNativeKbd(mf); });
   mf.addEventListener('keydown', ev => { if (ev.key === 'Enter') { ev.preventDefault(); commit(true); } });
-  mf.addEventListener('input', () => { if (active && active.mf === mf) { active.r.latex = mf.getValue('latex'); livePreview(); } });
+  mf.addEventListener('input', () => { if (active && active.mf === mf) { active.r.latex = mf.getValue('latex'); livePreview(); updateSugg(mf); } });
   return mf;
 }
 let nativeKbd = false;
@@ -269,7 +270,7 @@ function activate(r, tap) {
 // индекс-подпись (P_вх, Q_max) показывается прямым шрифтом, как литеральный индекс Mathcad; t_i и x_1 не трогаем
 function tidySubs(t) { return t.replace(/_\{([A-Za-zА-Яа-яЁё0-9]+)\}/g, (m, x) => (/[А-Яа-яЁё]/.test(x) || /[A-Za-z].*[A-Za-z]/.test(x)) ? '_{\\mathrm{' + x + '}}' : m); }
 function commit(moveDown) {
-  hideBar();
+  hideBar(); hideSugg();
   if (!active) return;
   const r = active.r; const mf = active.mf;
   if (mf) r.latex = tidySubs(mf.getValue('latex').trim());
@@ -561,7 +562,7 @@ const GREEKTEX = { α: '\\alpha', β: '\\beta', γ: '\\gamma', δ: '\\delta', ε
 let curTab = '123';
 function buildKeys() {
   const tabs = $('#tabs'); tabs.innerHTML = '';
-  for (const t of Object.keys(TABS)) { const b = h('button', t === curTab ? 'on' : '', t); b.addEventListener('pointerdown', ev => { ev.preventDefault(); curTab = t; buildKeys(); }); tabs.appendChild(b); }
+  for (const t of Object.keys(TABS)) { if (t === 'ед.' && S.fmt.units === false) { if (curTab === t) curTab = '123'; continue; } const b = h('button', t === curTab ? 'on' : '', t); b.addEventListener('pointerdown', ev => { ev.preventDefault(); curTab = t; buildKeys(); }); tabs.appendChild(b); }
   const keys = $('#keys'); keys.innerHTML = ''; const list = TABS[curTab];
   const letters = typeof list[0] === 'string'; keys.className = 'keys' + (letters ? ' c10' : '');
   for (const k of list) {
@@ -605,7 +606,7 @@ function insert(mf, latex) {
   if (/\\begin\{/.test(t)) { // матрицы и системы: MathLive оставляет курсор за окружением — перейти в первое пустое место
     try { mf.position = pos0; mf.executeCommand('moveToNextPlaceholder'); } catch (e) {}
   }
-  if (active && active.mf === mf) { active.r.latex = mf.getValue('latex'); livePreview(); }
+  if (active && active.mf === mf) { active.r.latex = mf.getValue('latex'); livePreview(); updateSugg(mf); }
 }
 
 // ───────── рукописный ввод (модель CoMER, ONNX Runtime в WebView) ─────────
@@ -712,6 +713,57 @@ nav('#kHome', 'moveToMathfieldStart'); nav('#kEnd', 'moveToMathfieldEnd');
 tool('#kUndo', () => { if (targetMf && document.body.contains(targetMf)) { targetMf.focus(); targetMf.executeCommand('undo'); if (active && active.mf === targetMf) { active.r.latex = targetMf.getValue('latex'); livePreview(); } } else sheetUndo(); });
 tool('#kRedo', () => { if (targetMf && document.body.contains(targetMf)) { targetMf.focus(); targetMf.executeCommand('redo'); if (active && active.mf === targetMf) { active.r.latex = targetMf.getValue('latex'); livePreview(); } } else sheetRedo(); });
 nav('#kSel', 'extendSelectionBackward');
+tool('#kVars', () => openVars());
+
+// ───────── переменные листа: подсказки при наборе (выпадающая строка) и список по кнопке «x=…» ─────────
+let envEnd = () => null; // окружение в конце листа (после пересчёта)
+const HIDDEN_VARS = new Set(['ORIGIN']);
+function sheetVars() { // имена, заданные в листе выше редактируемой формулы (или во всём листе), по порядку определения
+  const env = (active && active.r && active.r.before && active.r.before.env) || envEnd(); if (!env) return [];
+  const chain = []; for (let e = env; e; e = e.parent) chain.push(e);
+  const seen = new Map();
+  for (let k = chain.length - 1; k >= 0; k--) for (const [n, v] of chain[k].vars) { if (n.includes('#') || HIDDEN_VARS.has(n)) continue; seen.delete(n); seen.set(n, v); }
+  return [...seen].map(([name, v]) => ({ name, v, fn: v instanceof E.Fn }));
+}
+function varTex(x) { return E.nameToTex(x.name) + (x.fn ? '\\left(' + x.v.params.map(p => E.nameToTex(p)).join(',') + '\\right)' : ''); }
+function varInsertTex(x) { return E.nameToTex(x.name) + (x.fn ? '\\left(' + x.v.params.map((p, i) => i ? '#?' : '#0').join(',') + '\\right)' : ''); }
+function varValue(x) { if (x.fn) return 'функция'; try { const s = E.fmtValue(x.v, S.fmt); return s.length > 140 ? (x.v instanceof E.Mat ? x.v.r + '×' + x.v.c : '…') : s; } catch (e) { return ''; } }
+function insertVar(x, typed) {
+  const mf = ensureTarget(); if (!mf) return; mf.focus();
+  for (let i = 0; i < (typed || 0); i++) mf.executeCommand('deleteBackward');
+  insert(mf, varInsertTex(x)); hideSugg();
+}
+function openVars() {
+  const d = $('#dVars'), q = $('#varQ'); const all = sheetVars();
+  $('#varHint').textContent = all.length ? (active ? 'Заданы выше этой формулы — нажмите, чтобы вставить' : 'Заданы в листе — нажмите, чтобы вставить') : 'В листе пока нет переменных';
+  const draw = () => {
+    const f = q.value.trim().toLowerCase(); const list = $('#varList'); list.innerHTML = '';
+    const items = all.filter(x => !f || x.name.toLowerCase().includes(f) || E.nameToTex(x.name).toLowerCase().includes(f));
+    for (const [title, part] of [['Переменные', items.filter(x => !x.fn)], ['Функции', items.filter(x => x.fn)]]) {
+      if (!part.length) continue; list.appendChild(h('div', 'grp', title));
+      for (const x of part) {
+        const b = h('button'); const nm = h('span'); nm.innerHTML = tex2html(varTex(x)); const vv = h('span', 'vv'); const val = varValue(x); if (val && !x.fn) vv.innerHTML = tex2html('=' + val); else vv.textContent = val;
+        b.appendChild(nm); b.appendChild(vv); b.addEventListener('pointerdown', ev => { ev.preventDefault(); d.classList.remove('on'); insertVar(x); }); list.appendChild(b);
+      }
+    }
+  };
+  q.value = ''; q.oninput = draw; draw(); d.classList.add('on');
+}
+// подсказки: набираемое имя (буквы перед курсором) дополняется именами из листа
+function hideSugg() { const s = $('#sugg'); s.classList.remove('on'); s.innerHTML = ''; }
+function updateSugg(mf) {
+  let before = ''; try { before = mf.getValue(0, mf.position, 'latex'); } catch (e) { hideSugg(); return; }
+  const m = /(?:^|[^A-Za-zА-Яа-яЁё\\])([A-Za-zА-Яа-яЁё]{1,12})$/.exec(before); if (!m) { hideSugg(); return; }
+  const pre = m[1]; const base = n => n.split('_')[0];
+  const hits = sheetVars().filter(x => base(x.name).startsWith(pre) && x.name !== pre).slice(0, 10);
+  const s = $('#sugg'); s.innerHTML = ''; if (!hits.length) { hideSugg(); return; }
+  for (const x of hits) {
+    const b = h('button'); const nm = h('span'); nm.innerHTML = tex2html(varTex(x)); b.appendChild(nm);
+    const val = varValue(x); if (val && !x.fn && val.length < 40) { const sm = h('small'); sm.innerHTML = tex2html('=' + val); b.appendChild(sm); }
+    b.addEventListener('pointerdown', ev => { ev.preventDefault(); insertVar(x, [...pre].length); }); s.appendChild(b);
+  }
+  s.classList.add('on');
+}
 nav('#kDel', 'deleteBackward');
 tool('#kDef', () => { const mf = ensureTarget(); insert(mf, '\\coloneq '); });
 tool('#kEq', () => {
@@ -1025,6 +1077,9 @@ mi('#mFmt', () => {
   $('#fDec').value = S.fmt.decimals; $('#fThr').value = S.fmt.expThreshold; $('#fImag').value = S.fmt.imagUnit || 'i'; $('#fOrg').value = S.origin || 0; $('#dFmt').classList.add('on');
 });
 mi('#mFit', () => fitZoom());
+function unitsLabel() { $('#mUnits').textContent = 'Единицы измерения: ' + (S.fmt.units === false ? 'выкл' : 'вкл'); }
+mi('#mUnits', () => { S.fmt.units = S.fmt.units === false; unitsLabel(); buildKeys(); commit(false); recompute(); render(); save();
+  toast(S.fmt.units === false ? 'Единицы выключены: м, кг, с — обычные имена, ответы без единиц' : 'Единицы включены'); });
 mi('#m100', () => setZoom(1));
 mi('#mAbout', () => $('#dAbout').classList.add('on'));
 $('#fOk').addEventListener('click', () => { S.fmt.decimals = Math.max(0, Math.min(15, parseInt($('#fDec').value) || 3)); S.fmt.expThreshold = Math.max(0, Math.min(15, parseInt($('#fThr').value) || 3)); S.fmt.imagUnit = $('#fImag').value; S.origin = parseInt($('#fOrg').value) || 0; $('#dFmt').classList.remove('on'); recompute(); render(); });

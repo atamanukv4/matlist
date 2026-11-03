@@ -2,7 +2,7 @@
 function markUnits(n) { if (!n || typeof n !== 'object') return n; if (Array.isArray(n)) return n.map(markUnits); if (n.type === 'id') return Object.assign({}, n, { unit: true }, (UNITS.has(n.name) || TEMP[n.name]) ? { u: true } : {}); const o = {}; for (const k in n) o[k] = markUnits(n[k]); return o; }
 function execStatement(st, env, opts) {
   const res = execStatement0(st, env, opts);
-  if (st.unit && res.value !== undefined && res.value !== null && !(res.value instanceof Fn)) {
+  if (st.unit && UNITS_ON && res.value !== undefined && res.value !== null && !(res.value instanceof Fn)) {
     const ctx = new Ctx(env, opts); let u; ctxPure.on = true; try { u = evalNode(markUnits(st.unit), env, ctx); } finally { ctxPure.on = false; } const ut = tex(markUnits(st.unit), 0);
     if (res.value instanceof Rng) { let t = ut; const vals = res.value.vals.map(x => { const r = inUnits(x, u, ut); t = r.unitTex; return r.value; }); res.shown = new Rng(vals); res.unitTex = t; }
     else { const r = inUnits(res.value, u, ut); res.shown = r.value; res.unitTex = r.unitTex; }

@@ -17,12 +17,12 @@ function lookup(name, env, node) {
   const v = env.get(name);
   if (node && node.u) { // \mathrm{m} из файла Mathcad — единица (или её переопределение в листе), а не переменная m
     if (!(ctxPure && ctxPure.on) && env.has(name + '#u')) return env.get(name + '#u');
-    const u0 = UNITS.get(name); if (u0) return u0.v; if (TEMP[name]) return TEMP[name];
+    const u0 = unitGet(name); if (u0) return u0.v; if (tempGet(name)) return TEMP[name];
   }
   if (v !== undefined) return v;
   if (name in CONSTS) return CONSTS[name];
-  const u = UNITS.get(name); if (u) return u.v;
-  if (TEMP[name]) return TEMP[name];
+  const u = unitGet(name); if (u) return u.v;
+  if (tempGet(name)) return TEMP[name];
   if (B[name]) throw err('«' + name + '» — функция, нужны аргументы', node);
   throw err('Переменная «' + prettyName(name) + '» не определена', node);
 }
