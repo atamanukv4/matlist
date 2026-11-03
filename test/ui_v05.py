@@ -30,7 +30,7 @@ try:
         check('293,15 K = 20 °C', tv and tv['res'] == '20\\,°C', tv)
         check('100 km / 1,5 hr в м/с', vv and vv['res'] and vv['res'].startswith('18.519'), vv)
         # в самой формуле «[kJ]» не показывается — единицы стоят после результата
-        eqtxt = pg.evaluate(f"document.querySelector('[data-id=\"{q2['id']}\"] .eq').textContent") if q2 else ''
+        eqtxt = pg.evaluate("MATLIST_DEBUG.render(true)") or pg.evaluate(f"document.querySelector('[data-id=\"{q2['id']}\"] .eq').textContent") if q2 else ''
         check('единицы вывода не дублируются в формуле', 'kJ' not in eqtxt, eqtxt)
         # клавиатура «ед.»
         pg.evaluate("MATLIST_DEBUG.S.cursor = {x: 20, y: 30}; MATLIST_DEBUG.commit(false)")
@@ -87,7 +87,7 @@ try:
         lab = os.path.join(FIX, 'laba.xmcd')
         if os.path.exists(lab):
             pg.evaluate("t => window.MATLIST_OPEN_TEXT('laba.xmcd', t)", open(lab, encoding='utf-8').read()); pg.wait_for_timeout(2500)
-            pl = pg.evaluate("MATLIST_DEBUG.S.regions.filter(r => r.kind === 'plot').map(r => ({ys: r.ys, snap: !!r.snapOnly, lab: document.querySelector('[data-id=\"' + r.id + '\"] .pl').textContent}))")
+            pg.evaluate("MATLIST_DEBUG.render(true)"); pl = pg.evaluate("MATLIST_DEBUG.S.regions.filter(r => r.kind === 'plot').map(r => ({ys: r.ys, snap: !!r.snapOnly, lab: document.querySelector('[data-id=\"' + r.id + '\"] .pl').textContent}))")
             check('3 графика годографов перенесены живыми', len(pl) == 3 and all(x['ys'] and not x['snap'] and not x['lab'] for x in pl), pl)
             el = pg.query_selector('.rg.plot'); el.scroll_into_view_if_needed(); pg.wait_for_timeout(300); pg.screenshot(path=f'{OUT}/v5_laba.png')
         check('нет ошибок JS', not logs, logs)
