@@ -227,27 +227,36 @@ body.dragging .sheetwrap{touch-action:none}
 .varlist .vv{color:var(--muted,#667085);font-size:12px;max-width:55%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:right}
 .varlist .grp{font-size:12px;color:var(--muted,#667085);padding:8px 4px 2px;text-transform:uppercase;letter-spacing:.04em}
 
-/* альбомная ориентация (планшет, телефон боком): лист слева, клавиатура столбцом справа; ⇄ — поменять стороны */
+/* альбомная ориентация (планшет, телефон боком): лист слева, клавиатура столбцом справа; ⇄ — поменять стороны.
+   Ширина клавиатуры — --kbdw (настройка: авто, 450, 500, 640, 720 px) */
 .tools.nav button.side{display:none}
 @media (orientation: landscape) and (min-width: 640px) {
-  body{display:grid;grid-template-columns:minmax(0,1fr) clamp(320px,38vw,520px);grid-template-rows:auto minmax(0,1fr) auto;grid-template-areas:"top top" "sheet side" "plot side"}
-  body.kbd-left{grid-template-columns:clamp(320px,38vw,520px) minmax(0,1fr);grid-template-areas:"top top" "side sheet" "side plot"}
+  body{--kbdw:min(42vw,560px);display:grid;grid-template-columns:minmax(0,1fr) var(--kbdw);grid-template-rows:auto minmax(0,1fr) auto;grid-template-areas:"top top" "sheet side" "plot side"}
+  body.kbd-left{grid-template-columns:var(--kbdw) minmax(0,1fr);grid-template-areas:"top top" "side sheet" "side plot"}
   body.kbd-off,body.kbd-off.kbd-left{grid-template-columns:minmax(0,1fr);grid-template-areas:"top" "sheet" "plot"}
   .top{grid-area:top} .sheetwrap{grid-area:sheet;min-height:0} .plotpanel{grid-area:plot;max-height:45vh}
-  .kbd{grid-area:side;display:flex;flex-direction:column;min-height:0;overflow:auto;border-left:1px solid var(--line);padding-bottom:calc(6px + env(safe-area-inset-bottom))}
+  .kbd{grid-area:side;display:flex;flex-direction:column;min-height:0;overflow:hidden;border-left:1px solid var(--line);padding-bottom:calc(6px + env(safe-area-inset-bottom))}
   body.kbd-left .kbd{border-left:0;border-right:1px solid var(--line)}
   .kbd.hide{display:none}
-  .kbd .keys{flex:1;grid-auto-rows:minmax(34px,62px);align-content:start}
-  .kbd .keys button{height:auto;min-height:34px}
-  .tools.nav{flex-wrap:wrap}
+  .kbd > .tools,.kbd > .tabs,.kbd > .sugg{flex:none}
+  /* верхние строки — прокрутка пальцем вбок, кнопки не сжимаются */
+  .kbd > .tools{overflow-x:auto;scrollbar-width:none}
+  .kbd > .tools::-webkit-scrollbar{display:none}
+  .kbd > .tools button{flex:1 0 auto;min-width:44px;padding:0 8px}
+  .kbd > .tools button.w{min-width:64px}
+  .kbd .tabs button{min-width:52px}
+  /* клавиши — прокрутка вниз, если функций больше, чем помещается */
+  .kbd .keys{flex:1;min-height:0;overflow-y:auto;grid-auto-rows:minmax(38px,58px);align-content:start;padding-bottom:6px}
+  .kbd .keys button{height:auto;min-height:38px}
   .tools.nav button.side{display:block}
-  .inkpanel{left:auto;right:0;top:0;bottom:0;height:auto;width:clamp(320px,38vw,520px);border-top:0;border-left:1px solid var(--line)}
+  .inkpanel{left:auto;right:0;top:0;bottom:0;height:auto;width:var(--kbdw);border-top:0;border-left:1px solid var(--line)}
   body.kbd-left .inkpanel{right:auto;left:0;border-left:0;border-right:1px solid var(--line)}
-  .busy{left:calc((100vw - clamp(320px,38vw,520px)) / 2)}
-  body.kbd-left .busy{left:calc(clamp(320px,38vw,520px) + (100vw - clamp(320px,38vw,520px)) / 2)}
+  .busy{left:calc((100vw - var(--kbdw)) / 2)}
+  body.kbd-left .busy{left:calc(var(--kbdw) + (100vw - var(--kbdw)) / 2)}
   .kshow{bottom:14px}
 }
 
-/* выбор единиц ответа */
-.rg .ubtn{display:inline-block;margin-left:3px;padding:0 5px;border-radius:6px;background:var(--accent-soft);color:var(--accent);font-size:12px;line-height:18px;vertical-align:middle;cursor:pointer}
-.unitlist button.on{background:var(--accent-soft)}
+.inktools button.kb{background:var(--accent-soft);color:var(--accent);font-weight:600}
+.inkgreek{display:flex;gap:4px;overflow-x:auto;padding:4px 6px 6px;scrollbar-width:none;flex:none}
+.inkgreek button{flex:0 0 auto;min-width:34px;height:34px;border:0;border-radius:8px;background:var(--key-alt);font-size:17px;cursor:pointer}
+.varlist .fdesc{color:var(--muted,#667085);font-size:12px;text-align:right}

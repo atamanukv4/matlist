@@ -71,7 +71,7 @@ function stmtToTex(st) {
 
 
 // программа: \left|\begin{aligned}&строка\\&строка\end{aligned}\right.
-function progTex(n) { return '\\left|\\begin{aligned}' + n.lines.map(l => '&' + progLineTex(l)).join('\\\\') + '\\end{aligned}\\right.'; }
+function progTex(n) { return '\\left|\\begin{array}{l}' + n.lines.map(l => progLineTex(l)).join('\\\\') + '\\end{array}\\right.'; } // один столбец, по левому краю — как программа Mathcad
 function progBodyTex(b) { const L = b.lines; return L.length === 1 && !['for', 'while', 'if', 'else', 'onerr'].includes(L[0].k) ? progLineTex(L[0]) : progTex(b); }
 const SP = String.fromCharCode(92) + ';'; // «\;» — пробел в строке программы
 function progLineTex(l) {

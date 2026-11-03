@@ -89,8 +89,9 @@
   <canvas id="inkCv"></canvas>
   <div class="inktools">
     <button id="inkUndo" title="Убрать последний штрих">↶</button><button id="inkClear" title="Очистить">Очистить</button>
-    <span class="sp"></span><button id="inkClose">Клавиатура</button><button id="inkOk" class="pri">Вставить</button>
+    <span class="sp"></span><button id="inkClose" class="kb" title="Вернуться к экранной клавиатуре">⌨ Клавиатура</button><button id="inkOk" class="pri">Вставить</button>
   </div>
+  <div class="inkgreek" id="inkGreek" title="Буквы, которые модель не распознаёт, — нажатием"></div>
 </section>
 <div class="menu" id="menu"><div class="sheet">
   <button id="mLib">Мои листы…</button>
@@ -103,6 +104,7 @@
   <hr>
   <button id="mFmt">Формат результатов…</button>
   <button id="mUnits">Единицы измерения: вкл</button>
+  <button id="mKbw">Ширина клавиатуры: авто</button>
   <button id="mFit">Масштаб: по ширине</button>
   <button id="m100">Масштаб: 100 %</button>
   <hr>
@@ -111,6 +113,17 @@
 <input type="file" id="file" accept=".xmcd,.md,.markdown,.txt,application/xml,text/xml,text/markdown,text/plain,*/*" hidden>
 <input type="file" id="imgfile" accept="image/*" hidden>
 <div class="full" id="full"><div class="fullbar"><span id="fullTitle"></span><button id="fullFit" class="sm">Сбросить вид</button><button id="fullClose" class="pri">Закрыть</button></div><canvas id="fullcv"></canvas><p class="hint">Палец — двигать, щипок — масштаб, удержание — координаты точки, двойной тап — сброс</p></div>
+<div class="dlg" id="dFns"><div class="box varbox">
+  <h3>Все функции</h3>
+  <input id="fnQ" type="search" placeholder="Поиск: root, wsp, J0, qnorm…" autocomplete="off">
+  <div id="fnList" class="varlist"></div>
+  <div class="btns"><button data-close>Закрыть</button></div>
+</div></div>
+<div class="dlg" id="dKbw"><div class="box">
+  <h3>Ширина клавиатуры (альбомная ориентация)</h3>
+  <div id="kbwList" class="varlist"></div>
+  <div class="btns"><button data-close>Закрыть</button></div>
+</div></div>
 <div class="dlg" id="dUnit"><div class="box varbox">
   <h3>Единицы ответа</h3>
   <p id="unitHint"></p>

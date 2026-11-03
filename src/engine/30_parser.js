@@ -399,9 +399,9 @@ class Parser {
     return this.parseMul();
   }
   // ───── программы Mathcad: \left|\begin{aligned}&строка\\&строка\end{aligned}\right. ─────
-  progAt(i) { const a = this.t[i], b = this.t[i + 1], c = this.t[i + 2]; return a && a.k === 'cmd' && a.v === 'begin' && b && b.v === '{' && c && c.k === 'ch' && c.v === 'a' && /^aligned\}/.test(this.t.slice(i + 2, i + 10).map(x => x.v).join('')); }
+  progAt(i) { const a = this.t[i], b = this.t[i + 1], c = this.t[i + 2]; return a && a.k === 'cmd' && a.v === 'begin' && b && b.v === '{' && c && c.k === 'ch' && c.v === 'a' && /^(aligned|array)\}/.test(this.t.slice(i + 2, i + 10).map(x => x.v).join('')); } // программа: aligned (старые листы) или array{l}
   parseProgram() {
-    this.next(); this.groupTokens(); // \begin{aligned}
+    this.next(); const envName = this.groupRaw(this.groupTokens()); if (envName === 'array' && this.is('{')) this.groupTokens(); // \begin{array}{l} или \begin{aligned}
     const rows = [[]]; let d = 0;
     while (!this.eof()) {
       const x = this.next();

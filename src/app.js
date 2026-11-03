@@ -32,6 +32,38 @@ function applyOut(r, st, out) {
   else if (st.sym && out.value instanceof E.Fn) r.res = E.toTex(st.rhs); // f(x) := … → — показываем выражение
   else if (out.value !== undefined && out.value !== null) { const v = out.shown !== undefined ? out.shown : out.value; r.res = E.fmtValue(v, S.fmt, out.unitTex); r.tbl = v instanceof E.Rng; r.dim = valueDim(out.value); }
 }
+// ───── все встроенные функции: поиск и вставка (как «Вставить функцию» в Mathcad, Ctrl+E) ─────
+const FN_INFO = { root: 'корень уравнения: root(f(x), x) или root(f(x), x, a, b)', Find: 'решение блока Given', Minerr: 'приближённое решение Given', Odesolve: 'ОДУ в блоке Given', rkfixed: 'ОДУ, Рунге–Кутта, постоянный шаг', Rkadapt: 'ОДУ, адаптивный шаг', sbval: 'краевая задача (стрельба)', lsolve: 'решение линейной системы', polyroots: 'корни многочлена', linfit: 'МНК по базисным функциям', interp: 'интерполяция сплайном', cspline: 'коэффициенты кубического сплайна', linterp: 'линейная интерполяция', J0: 'Бессель J₀', J1: 'Бессель J₁', Jn: 'Бессель Jₙ(n, x)', Y0: 'Бессель Y₀', K0: 'Бессель K₀', I0: 'Бессель I₀', qnorm: 'квантиль нормального', pnorm: 'функция нормального распределения', qt: 'квантиль Стьюдента', qchisq: 'квантиль χ²', Ceil: 'округление вверх до кратного', Floor: 'округление вниз до кратного', norme: 'норма Фробениуса', eigenvals: 'собственные значения', eigenvec: 'собственный вектор', hist: 'гистограмма', if: 'if(условие, да, нет)', mod: 'остаток', erf: 'функция ошибок' };
+function openFns() {
+  const names = Object.keys(E.B).filter(n => /^[A-Za-zΓΦδ]/.test(n)).sort((a, b) => a.localeCompare(b, 'en', { sensitivity: 'base' }));
+  const wsp = ((window.MatWSP && window.MatWSP.names) || []).filter(n => /^(wsp|iap)/.test(n));
+  const all = names.concat(wsp.filter(n => !names.includes(n)));
+  const d = $('#dFns'), q = $('#fnQ');
+  const draw = () => {
+    const f = q.value.trim().toLowerCase(); const list = $('#fnList'); list.innerHTML = '';
+    for (const n of all.filter(n => !f || n.toLowerCase().includes(f) || (FN_INFO[n] || '').toLowerCase().includes(f)).slice(0, 400)) {
+      const b = h('button'); b.appendChild(h('span', '', n + '(…)')); b.appendChild(h('span', 'fdesc', FN_INFO[n] || ''));
+      b.addEventListener('pointerdown', ev => { ev.preventDefault(); d.classList.remove('on'); const mf = ensureTarget(); if (mf) insert(mf, '\\operatorname{' + n + '}\\left(#0\\right)'); }); list.appendChild(b);
+    }
+  };
+  q.value = ''; q.oninput = draw; draw(); d.classList.add('on');
+}
+// ───── ширина клавиатуры в альбомной ориентации: авто или 450 / 500 / 640 / 720 px ─────
+const KBW = ['auto', 450, 500, 640, 720];
+function kbwAuto() { const W = window.innerWidth; return W < 900 ? 450 : W < 1150 ? 500 : W < 1500 ? 640 : 720; }
+function applyKbw() {
+  let v = 'auto'; try { v = localStorage.getItem('matlist.kbdW') || 'auto'; } catch (e) {}
+  const px = Math.min(v === 'auto' ? kbwAuto() : +v, Math.round(window.innerWidth * 0.62)); // лист не уже ~40 % экрана
+  document.body.style.setProperty('--kbdw', px + 'px'); const m = $('#mKbw'); if (m) m.textContent = 'Ширина клавиатуры: ' + (v === 'auto' ? 'авто (' + px + ' px)' : v + ' px');
+}
+window.addEventListener('resize', applyKbw); applyKbw();
+function openKbw() {
+  let cur = 'auto'; try { cur = localStorage.getItem('matlist.kbdW') || 'auto'; } catch (e) {}
+  const list = $('#kbwList'); list.innerHTML = '';
+  for (const v of KBW) { const b = h('button', String(v) === cur ? 'on' : ''); b.appendChild(h('span', '', v === 'auto' ? 'Авто — по размеру экрана (сейчас ' + kbwAuto() + ' px)' : v + ' px')); b.appendChild(h('span', 'vv', String(v) === cur ? '✓' : ''));
+    b.addEventListener('click', () => { try { localStorage.setItem('matlist.kbdW', String(v)); } catch (e) {} applyKbw(); $('#dKbw').classList.remove('on'); }); list.appendChild(b); }
+  $('#dKbw').classList.add('on');
+}
 // выпадающий список единиц у ответа: «▾» после результата → единицы той же размерности (с → мин, ч, сут …)
 function openUnits(r) {
   const list = E.unitChoices(r.dim); const cur = (/=\s*\\left\[(.*)\\right\]\s*$/.exec(r.latex || '') || [])[1] || null;
@@ -555,6 +587,7 @@ const TABS = {
     F('sinh', 1), F('cosh', 1), F('tanh', 1), F('ln', 1), F('log', 1), F('exp', 1), F('abs'), F('mod', 1),
     F('floor'), F('ceil'), F('round'), F('trunc'), F('Re', 1), F('Im', 1), F('arg', 1), { l: 'if', t: '\\operatorname{if}\\left(#0,#?,#?\\right)', cls: 'fn' },
     F('max', 1), F('min', 1), F('mean'), F('stdev'), { l: 'root', t: '\\operatorname{root}\\left(#0,#?\\right)', cls: 'fn' }, F('polyroots', 0, 'sm'), { l: 'lsolve', t: '\\operatorname{lsolve}\\left(#0,#?\\right)', cls: 'fn' }, { l: 'rkfixed', t: '\\operatorname{rkfixed}\\left(#0,#?,#?,#?,#?\\right)', cls: 'fn sm' },
+    F('J0'), F('J1'), { l: 'Ceil', t: '\\operatorname{Ceil}\\left(#0,#?\\right)', cls: 'fn sm' }, { l: 'Floor', t: '\\operatorname{Floor}\\left(#0,#?\\right)', cls: 'fn sm' }, F('erf'), F('norme', 0, 'sm'), { l: 'linfit', t: '\\operatorname{linfit}\\left(#0,#?,#?\\right)', cls: 'fn sm' }, A('все f…', 'allFns', 'op sm'),
   ],
   '∫Σ': [
     T('∫ₐᵇ', '\\int_{#?}^{#?}#0\\,\\mathrm{d}#?', 'op'), T('d/dx', '\\frac{\\mathrm{d}}{\\mathrm{d}#?}#0', 'op sm'), T('dⁿ/dxⁿ', '\\frac{\\mathrm{d}^{#?}}{\\mathrm{d}#?^{#?}}#0', 'op sm'), T('Σₖ₌ₐᵇ', '\\sum_{#?=#?}^{#?}#0', 'op sm'), T('Σᵢ', '\\sum_{#?}#0', 'op sm'), T('Πₖ₌ₐᵇ', '\\prod_{#?=#?}^{#?}#0', 'op sm'), T('Πᵢ', '\\prod_{#?}#0', 'op sm'), T('{ сист.', '\\begin{cases}#?\\\\#?\\end{cases}', 'op sm'),
@@ -578,6 +611,13 @@ const TABS = {
   ],
   'ед.': ['m', 'mm', 'cm', 'km', 'kg', 'gm', 'tonne', 's', 'min', 'hr', 'day', 'K', '°C', 'Δ°C', 'N', 'kN', 'Pa', 'kPa', 'MPa', 'bar', 'atm', 'J', 'kJ', 'MJ', 'W', 'kW', 'MW', 'L', 'mol', 'Hz', 'rad', '°'].map(u => U(u)).concat([
     { l: 'm²', t: '\\,\\mathrm{m}^{2}', cls: 'unit' }, { l: 'm³', t: '\\,\\mathrm{m}^{3}', cls: 'unit' }, { l: '= [ед]', t: '=\\left[#0\\right]', cls: 'op sm' }, A('→', 'arrowEval', 'op')]),
+  'прог.': [ // программы Mathcad: блок «|» со строками, ← локальное присваивание, if/otherwise, циклы
+    T('Прогр.', '\\left|\\begin{array}{l}#0\\\\#?\\end{array}\\right.', 'op sm'), A('+ строка', 'addRowAfter', 'op sm'), A('− строка', 'removeRow', 'op sm'), T('←', '\\leftarrow ', 'op'),
+    T('if', '\\,\\mathbf{if}\\,', 'fn'), T('otherwise', '\\,\\mathbf{otherwise}', 'fn sm'), T('for', '\\mathbf{for}\\,#0\\in #?..#?\\,\\left|\\begin{array}{l}#?\\end{array}\\right.', 'fn'), T('while', '\\mathbf{while}\\,#0\\,\\left|\\begin{array}{l}#?\\end{array}\\right.', 'fn sm'),
+    T('return', '\\mathbf{return}\\,', 'fn sm'), T('break', '\\mathbf{break}', 'fn sm'), T('continue', '\\mathbf{continue}', 'fn sm'), T('on error', '\\,\\mathbf{on}\\,\\mathbf{error}\\,', 'fn sm'),
+    T('<', '<', 'op'), T('>', '>', 'op'), T('≤', '\\le ', 'op'), T('≥', '\\ge ', 'op'), T('≠', '\\ne ', 'op'), T('=ᵇ', '=', 'op sm'), T('∧', '\\land ', 'op'), T('∨', '\\lor ', 'op'),
+    T('"…"', '\\text{"#0"}', 'op sm'), T('xᵢ', '#@_{#?}', 'op'), T('a..b', '..', 'op sm'), A('все f…', 'allFns', 'op sm'),
+  ],
   'αβ': 'α β γ δ ε ζ η θ ϑ λ μ ν ξ π ρ σ τ φ χ ψ ω Γ Δ Θ Λ Σ Φ Ψ Ω ′'.split(' '),
   'abc': 'q w e r t y u i o p a s d f g h j k l ⇧ z x c v b n m ′ ⌫ ⇧'.split(' '),
   'абв': 'й ц у к е н г ш щ з х ф ы в а п р о л д ж э я ч с м и т ь б ю ё ъ ⇧'.split(' '),
@@ -615,6 +655,7 @@ function press(key) {
   if (key.a === 'shift') { shift = !shift; buildKeys(); return; }
   if (key.a === 'matrix') { askMatrix(); return; }
   if (key.a === 'wspHelp') { openWspHelp(); return; }
+  if (key.a === 'allFns') { openFns(); return; }
   if (key.a === 'arrowEval') { const mf = ensureTarget(); insert(mf, '\\to '); if (!plotEdit) commit(true); return; }
   const mf = ensureTarget(); if (!mf) return;
   if (key.a) { mf._typed = true; mf.executeCommand(key.a); if (active && active.mf === mf) { active.r.latex = mf.getValue('latex'); livePreview(); } return; }
@@ -695,6 +736,15 @@ tool('#kPen', () => { if (ink.on) inkClose(); else inkOpen(); });
 $('#inkUndo').addEventListener('click', () => { ink.strokes.pop(); inkDraw(); inkSchedule(); });
 $('#inkClear').addEventListener('click', inkClear);
 $('#inkClose').addEventListener('click', inkClose);
+// буквы, которых нет в словаре модели (ω, ρ, τ, ε, η …), — палитрой: нажатие вставляет сразу в формулу
+for (const g of 'α β γ δ ε ζ η θ λ μ ν ξ π ρ σ τ φ χ ψ ω Γ Δ Θ Λ Σ Φ Ψ Ω ° ∞ ≤ ≥ ≠'.split(' ')) {
+  const b = h('button', '', g); b.addEventListener('pointerdown', ev => { ev.preventDefault();
+    const tex = GREEKTEX[g] ? GREEKTEX[g] + ' ' : ({ '°': '\\degree ', '∞': '\\infty ', '≤': '\\le ', '≥': '\\ge ', '≠': '\\ne ' })[g];
+    const mf = ensureTarget(); if (!mf) return; const c = ink.cands[ink.sel];
+    if (c) { insert(mf, c.latex); inkClear(); } // уже написанное от руки — сначала оно, потом буква
+    insert(mf, tex); });
+  $('#inkGreek').appendChild(b);
+}
 $('#inkOk').addEventListener('click', inkInsert);
 window.addEventListener('resize', () => { if (ink.on) inkSize(); });
 // ───────── справка WSP ─────────
@@ -830,6 +880,12 @@ document.addEventListener('keydown', ev => {
     if (k === '0') { ev.preventDefault(); setZoom(1); return; }
     return;
   }
+  if (active && active.mf && document.body.contains(active.mf)) { // формула открыта, но фокус ещё не в ней (сразу после создания) — клавиши идут в неё
+    const mf = active.mf;
+    if (k === 'Enter' && !typeBuf) { ev.preventDefault(); commit(true); return; }
+    const nav = { ArrowLeft: 'moveToPreviousChar', ArrowRight: 'moveToNextChar', ArrowUp: 'moveUp', ArrowDown: 'moveDown', Backspace: 'deleteBackward', Delete: 'deleteForward', Home: 'moveToMathfieldStart', End: 'moveToMathfieldEnd' }[k];
+    if (nav && !typeBuf) { ev.preventDefault(); mf.focus(); mf.executeCommand(nav); active.r.latex = mf.getValue('latex'); livePreview(); return; }
+  }
   if (k === 'F9') { ev.preventDefault(); commit(false); recompute(); render(); toast('Лист пересчитан'); return; }
   if ((k === 'Delete' || k === 'Backspace') && barRegion) { ev.preventDefault(); const r = barRegion; S.regions = S.regions.filter(x => x !== r); hideBar(); recompute(); render(); return; }
   if (k === 'Enter' && barRegion) { ev.preventDefault(); const r = barRegion; hideBar(); activate(r); return; }
@@ -841,13 +897,14 @@ document.addEventListener('keydown', ev => {
   if (k.length === 1 && !ev.altKey && k !== ' ') { // набор с клавиатуры сразу открывает новую формулу у крестика
     ev.preventDefault();
     if (typeBuf) { typeBuf.push(k); return; } // поле формулы ещё не получило фокус — копим нажатия
-    hideBar(); typeBuf = [k]; const mf = ensureTarget(); if (!mf) { typeBuf = null; return; }
+    hideBar(); const mf = ensureTarget(); if (!mf) return;
+    try { mf.focus(); } catch (e) {}
+    const put = c => { if (c === '[') insert(mf, '#@_{#?}'); else if (c === ':') insert(mf, '\\coloneq '); else { mf._typed = true; mf.executeCommand(['typedText', c]); } };
+    if (mf.isConnected && mf.shadowRoot) { put(k); if (active && active.mf === mf) { active.r.latex = mf.getValue('latex'); livePreview(); updateSugg(mf); } return; } // поле уже готово — сразу в него
+    typeBuf = [k]; // поле ещё создаётся — первые нажатия копятся
     setTimeout(() => {
       const keys = typeBuf; typeBuf = null; mf.focus(); let enter = false;
-      for (const c of keys) {
-        if (c === '\n') { enter = true; break; }
-        if (c === '[') insert(mf, '#@_{#?}'); else if (c === ':') insert(mf, '\\coloneq '); else { mf._typed = true; mf.executeCommand(['typedText', c]); } // как при обычном наборе: * → ·, / → дробь
-      }
+      for (const c of keys) { if (c === '\n') { enter = true; break; } put(c); }
       if (active && active.mf === mf) { active.r.latex = mf.getValue('latex'); livePreview(); updateSugg(mf); }
       if (enter) commit(true);
     }, 0);
@@ -1170,6 +1227,7 @@ mi('#mFmt', () => {
   $('#fULang').value = S.fmt.unitLang || 'ru'; $('#fDec').value = S.fmt.decimals; $('#fThr').value = S.fmt.expThreshold; $('#fImag').value = S.fmt.imagUnit || 'i'; $('#fOrg').value = S.origin || 0; $('#dFmt').classList.add('on');
 });
 mi('#mFit', () => fitZoom());
+mi('#mKbw', () => openKbw());
 function unitsLabel() { $('#mUnits').textContent = 'Единицы измерения: ' + (S.fmt.units === false ? 'выкл' : 'вкл'); }
 mi('#mUnits', () => { S.fmt.units = S.fmt.units === false; unitsLabel(); buildKeys(); commit(false); recompute(); render(); save();
   toast(S.fmt.units === false ? 'Единицы выключены: м, кг, с — обычные имена, ответы без единиц' : 'Единицы включены'); });
