@@ -1,9 +1,11 @@
 # Сборка APK Матлиста: веб-ядро (node build.js) → assets Android → APK, подписанный тестовым ключом → релиз на GitHub.
+# Каждый push в modernize — бета-сборка (пререлиз). Ручной запуск (раз в неделю, для тестеров) — обычный релиз, «последняя версия».
+# Тег релиза ставится на тот коммит, из которого собран APK.
 name: Сборка APK
 
 on:
   push:
-    branches: [main]
+    branches: [main, modernize]
   workflow_dispatch:
 
 permissions:
@@ -38,6 +40,10 @@ jobs:
           node test/wsp.test.js
           node test/units.test.js
           node test/md.test.js
+          node test/xmcd.test.js
+          node test/stage1.test.js
+          node test/stage2.test.js
+          node test/stage3.test.js
 
       - name: Ресурсы страницы → assets
         run: |
@@ -71,9 +77,13 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v0.8.${{ github.run_number }}
-          name: Матлист 0.8.${{ github.run_number }}
+          target_commitish: ${{ github.sha }}
+          name: Матлист 0.8.${{ github.run_number }}${{ github.event_name == 'push' && ' (бета)' || '' }}
           body: |
+            ${{ github.event_name == 'push' && 'Бета-сборка: собрана автоматически после правки, ещё не прошла ручную проверку.' || 'Тестовая сборка недели — для ручной проверки.' }}
+            Ветка ${{ github.ref_name }}, коммит ${{ github.sha }}.
             Пробная сборка Матлиста для Android (APK подписан тестовым ключом).
             Установка: скачать APK на телефон → открыть → разрешить установку из этого источника.
           files: out/*.apk
-          make_latest: true
+          prerelease: ${{ github.event_name == 'push' }}
+          make_latest: ${{ github.event_name != 'push' }}

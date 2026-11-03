@@ -295,5 +295,35 @@ public class MainActivity extends Activity {
         public String version() {
             return BuildConfig.VERSION_NAME;
         }
+
+        /** «Сообщить об ошибке»: системное «Поделиться» с текстом отчёта и (если есть) файлом листа. */
+        @JavascriptInterface
+        public void shareReport(String subject, String text, String fileName, String fileText) {
+            runOnUiThread(() -> shareReportNow(subject, text, fileName, fileText));
+        }
+    }
+
+    private void shareReportNow(String subject, String text, String fileName, String fileText) {
+        Intent i = new Intent(Intent.ACTION_SEND);
+        i.putExtra(Intent.EXTRA_SUBJECT, subject);
+        i.putExtra(Intent.EXTRA_TEXT, text);
+        i.setType("text/plain");
+        if (fileName != null && !fileName.isEmpty() && fileText != null) {
+            try {
+                Uri u = ReportProvider.put(this, fileName, fileText.getBytes(StandardCharsets.UTF_8));
+                i.putExtra(Intent.EXTRA_STREAM, u);
+                i.setType("application/octet-stream");
+                i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            } catch (Exception e) {
+                Toast.makeText(this, "Лист не приложен: " + e.getMessage(), Toast.LENGTH_LONG).show();
+            }
+        }
+        try {
+            Intent chooser = Intent.createChooser(i, "Отправить сообщение об ошибке");
+            chooser.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            startActivity(chooser);
+        } catch (ActivityNotFoundException e) {
+            Toast.makeText(this, "Нет приложения, чтобы отправить сообщение", Toast.LENGTH_LONG).show();
+        }
     }
 }

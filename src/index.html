@@ -109,6 +109,7 @@
   <button id="mFit">Масштаб: по ширине</button>
   <button id="m100">Масштаб: 100 %</button>
   <hr>
+  <button id="mBug">Сообщить об ошибке…</button>
   <button id="mAbout">О версии</button>
 </div></div>
 <input type="file" id="file" accept=".xmcd,.md,.markdown,.txt,application/xml,text/xml,text/markdown,text/plain,*/*" hidden>
@@ -176,6 +177,19 @@
   <p>Единицы измерения как в Mathcad: 5 kg, 20 °C, вывод в своих единицах «x = [kW]» (вкладка «ед.»). Рукописный ввод — кнопка с пером. Справка по WSP — «?» на вкладке WSP.</p>
   <p>Ещё нет: символьных преобразований (laplace, simplify).</p>
   <div class="btns"><button class="pri" data-close>Понятно</button></div>
+</div></div>
+<div class="dlg" id="dBug"><div class="box bugbox">
+  <h3>Сообщить об ошибке</h3>
+  <p>Опишите коротко: что делали, что ожидали, что получилось. Версия, устройство и последние ошибки приложатся сами.</p>
+  <textarea id="bugText" rows="5" placeholder="Открыл курсовая.xmcd, поменял P₁ на 3 МПа — h₂ не пересчиталась, в Mathcad 3125 кДж/кг"></textarea>
+  <div class="f bugpri"><span>Насколько серьёзно</span><select id="bugPri">
+    <option value="P0">P0 — неверное число, падение, порча файла</option>
+    <option value="P1" selected>P1 — мешает работать</option>
+    <option value="P2">P2 — неудобство, внешний вид</option>
+  </select></div>
+  <label class="bugchk"><input type="checkbox" id="bugSheet" checked> Приложить текущий лист (.xmcd)</label>
+  <details><summary>Что будет отправлено</summary><pre id="bugInfo"></pre></details>
+  <div class="btns"><button data-close>Отмена</button><button class="pri" id="bugSend">Отправить…</button></div>
 </div></div>
 <div class="toast" id="toast"></div>
 <!--MATHLIVE_JS-->

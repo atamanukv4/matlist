@@ -45,5 +45,12 @@
                 <data android:mimeType="text/plain" />
             </intent-filter>
         </activity>
+
+        <!-- лист, приложенный к «Сообщить об ошибке»: только чтение, только по выданному разрешению -->
+        <provider
+            android:name=".ReportProvider"
+            android:authorities="ru.matlist.app.reports"
+            android:exported="false"
+            android:grantUriPermissions="true" />
     </application>
 </manifest>

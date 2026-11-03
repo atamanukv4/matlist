@@ -7,6 +7,16 @@ const h = (tag, cls, txt) => { const e = document.createElement(tag); if (cls) e
 const PT = 4 / 3; // 1 pt Mathcad = 4/3 px
 const STORE = 'matlist.sheet.v1';
 
+// ───────── журнал ошибок для «Сообщить об ошибке» (последние 30 записей) ─────────
+const ERRLOG = [];
+function logErr(kind, msg) {
+  ERRLOG.push(new Date().toISOString().slice(11, 19) + ' ' + kind + ': ' + String(msg).slice(0, 300));
+  if (ERRLOG.length > 30) ERRLOG.shift();
+}
+window.addEventListener('error', e => logErr('error', (e.message || e) + (e.filename ? ' @' + String(e.filename).split('/').pop() + ':' + e.lineno : '')));
+window.addEventListener('unhandledrejection', e => logErr('promise', e.reason && (e.reason.stack || e.reason.message) || e.reason));
+{ const ce = console.error.bind(console); console.error = (...a) => { logErr('console', a.map(x => x && x.message ? x.message : String(x)).join(' ')); ce(...a); }; }
+
 // ───────── состояние ─────────
 const S = { name: 'Тестовый лист', regions: [], cursor: { x: 16, y: 16 }, fmt: Object.assign({}, E.DEFAULT_FMT), origin: 0, zoom: 1, nextId: 1, pageW: 380 };
 let active = null;       // { r, el, mf } — редактируемый регион
@@ -1234,6 +1244,28 @@ function zipStore(fname, data) {
   return out;
 }
 function saveXmcd() {
+  const { out, name } = sheetXml();
+  let ok = false;
+  if (window.MatlistAndroid && window.MatlistAndroid.saveFile) { try { window.MatlistAndroid.saveFile(name, out.xml); ok = true; } catch (e) {} }
+  if (!ok && downloadsApi) { // страница Artifact: .xmcd нет в списке разрешённых расширений — отдаём .zip с файлом внутри
+    const zip = zipStore(name, new TextEncoder().encode(out.xml));
+    downloadsApi.save({ filename: name.replace(/\.xmcd$/, '') + '.zip', data: new Blob([zip]) })
+      .then(() => toast('Сохранено: ' + name + ' (в архиве .zip)' + (out.notes.length ? '. ' + out.notes.join('; ') : '')))
+      .catch(e => toast(e && e.code === 'declined' ? 'Сохранение отменено' : 'Не удалось сохранить файл: ' + ((e && e.message) || e)));
+    return out;
+  }
+  if (!ok) ok = downloadText(name, out.xml, 'application/xml');
+  toast((ok ? 'Сохранено: ' + name : 'Не удалось сохранить файл') + (out.notes.length ? '. ' + out.notes.join('; ') : ''));
+  return out;
+}
+function downloadText(name, text, mime) {
+  try {
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: mime })); a.download = name;
+    document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000); return true;
+  } catch (e) { return false; }
+}
+/** Текущий лист → XML .xmcd (без сохранения): { out: {xml, notes}, name }. */
+function sheetXml() {
   commit(false); closePlot(); render(true);
   // размеры регионов — с экрана (в px при масштабе 1)
   const regs = S.regions.map(r => {
@@ -1248,23 +1280,54 @@ function saveXmcd() {
   });
   const out = X.exportXmcd(regs, { title: S.name, decimals: S.fmt.decimals, expThreshold: S.fmt.expThreshold, imagUnit: S.fmt.imagUnit, origin: S.origin }, E.parse);
   const name = (S.name || 'Лист').replace(/[\\/:*?"<>|]+/g, '_') + '.xmcd';
-  let ok = false;
-  if (window.MatlistAndroid && window.MatlistAndroid.saveFile) { try { window.MatlistAndroid.saveFile(name, out.xml); ok = true; } catch (e) {} }
-  if (!ok && downloadsApi) { // страница Artifact: .xmcd нет в списке разрешённых расширений — отдаём .zip с файлом внутри
-    const zip = zipStore(name, new TextEncoder().encode(out.xml));
-    downloadsApi.save({ filename: name.replace(/\.xmcd$/, '') + '.zip', data: new Blob([zip]) })
-      .then(() => toast('Сохранено: ' + name + ' (в архиве .zip)' + (out.notes.length ? '. ' + out.notes.join('; ') : '')))
-      .catch(e => toast(e && e.code === 'declined' ? 'Сохранение отменено' : 'Не удалось сохранить файл: ' + ((e && e.message) || e)));
-    return out;
+  return { out, name };
+}
+// ───────── «Сообщить об ошибке» ─────────
+function appVersion() {
+  try { if (window.MatlistAndroid && window.MatlistAndroid.version) return window.MatlistAndroid.version() + ' (Android)'; } catch (e) {}
+  return (window.MATLIST_VERSION || 'веб') + ' (браузер)';
+}
+function bugInfo() {
+  const errs = S.regions.filter(r => r.err).slice(0, 5).map(r => '  регион ' + r.id + ': ' + String(r.err).slice(0, 120));
+  return [
+    'Версия: ' + appVersion(),
+    'Устройство: ' + navigator.userAgent,
+    'Экран: ' + window.innerWidth + '×' + window.innerHeight + ', ' + (window.innerWidth > window.innerHeight ? 'альбомная' : 'портретная') + ', масштаб листа ' + Math.round(S.zoom * 100) + ' %',
+    'Лист: «' + (S.name || 'без имени') + '», регионов ' + S.regions.length + ', с ошибкой ' + S.regions.filter(r => r.err).length,
+    'Время: ' + new Date().toISOString(),
+    errs.length ? 'Ошибки в регионах:\n' + errs.join('\n') : 'Ошибок в регионах нет',
+    ERRLOG.length ? 'Журнал приложения:\n' + ERRLOG.map(s => '  ' + s).join('\n') : 'Журнал приложения пуст'
+  ].join('\n');
+}
+function bugReportText() {
+  const pri = $('#bugPri').value, what = $('#bugText').value.trim() || '(описание не заполнено)';
+  return 'Матлист — сообщение об ошибке [' + pri + ']\n\n' + what + '\n\n' + bugInfo();
+}
+function openBug() {
+  $('#bugInfo').textContent = bugInfo();
+  $('#dBug').classList.add('on');
+  setTimeout(() => $('#bugText').focus(), 50);
+}
+async function sendBug() {
+  const text = bugReportText();
+  let file = null;
+  if ($('#bugSheet').checked && S.regions.length) { try { const { out, name } = sheetXml(); file = { name, xml: out.xml }; } catch (e) { logErr('report', 'лист не сохранился: ' + e.message); } }
+  const subject = 'Матлист: ошибка ' + $('#bugPri').value;
+  if (window.MatlistAndroid && window.MatlistAndroid.shareReport) { // Android: системное «Поделиться» — Telegram, почта и т. п.
+    try { window.MatlistAndroid.shareReport(subject, text, file ? file.name : '', file ? file.xml : ''); $('#dBug').classList.remove('on'); return 'android'; } catch (e) { logErr('report', e.message); }
   }
-  if (!ok) {
-    try {
-      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([out.xml], { type: 'application/xml' })); a.download = name;
-      document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000); ok = true;
-    } catch (e) {}
-  }
-  toast((ok ? 'Сохранено: ' + name : 'Не удалось сохранить файл') + (out.notes.length ? '. ' + out.notes.join('; ') : ''));
-  return out;
+  try { // браузер с Web Share (телефон)
+    const data = { title: subject, text };
+    if (file && window.File) { const f = new File([file.xml], file.name, { type: 'application/xml' }); if (navigator.canShare && navigator.canShare({ files: [f] })) data.files = [f]; }
+    if (navigator.share && (!data.files || navigator.canShare(data))) { await navigator.share(data); $('#dBug').classList.remove('on'); return 'share'; }
+  } catch (e) { if (e && e.name === 'AbortError') return 'cancel'; }
+  // ПК: текст — в буфер обмена, лист — файлом рядом
+  let copied = false;
+  try { await navigator.clipboard.writeText(text); copied = true; } catch (e) {}
+  if (file) downloadText(file.name, file.xml, 'application/xml');
+  $('#dBug').classList.remove('on');
+  toast(copied ? 'Текст сообщения скопирован' + (file ? ', лист сохранён файлом' : '') + ' — отправьте их разработчику' : 'Не удалось скопировать текст — откройте «Что будет отправлено» и скопируйте вручную');
+  return copied ? 'clipboard' : 'fail';
 }
 // ───────── экспорт: Word (.docx) и PDF ─────────
 const XP = window.MatExport;
@@ -1337,6 +1400,9 @@ mi('#mUnits', () => { S.fmt.units = S.fmt.units === false; unitsLabel(); buildKe
   toast(S.fmt.units === false ? 'Единицы выключены: м, кг, с — обычные имена, ответы без единиц' : 'Единицы включены'); });
 mi('#m100', () => setZoom(1));
 mi('#mAbout', () => $('#dAbout').classList.add('on'));
+mi('#mBug', () => openBug());
+$('#bugSend').addEventListener('click', () => { sendBug(); });
+$('#bugPri').addEventListener('change', () => { $('#bugInfo').textContent = bugInfo(); });
 $('#fOk').addEventListener('click', () => { S.fmt.unitLang = $('#fULang').value; S.fmt.decimals = Math.max(0, Math.min(15, parseInt($('#fDec').value) || 3)); S.fmt.expThreshold = Math.max(0, Math.min(15, parseInt($('#fThr').value) || 3)); S.fmt.imagUnit = $('#fImag').value; S.origin = parseInt($('#fOrg').value) || 0; $('#dFmt').classList.remove('on'); recompute(); render(); });
 document.querySelectorAll('.dlg [data-close]').forEach(b => b.addEventListener('click', () => b.closest('.dlg').classList.remove('on')));
 $('#bRecalc').addEventListener('click', () => { commit(false); recompute({ full: true }); render(); toast('Лист пересчитан'); });
@@ -1427,5 +1493,5 @@ if (!load()) setSheet('Тестовый лист', window.MATLIST_TEST(), 380);
 window.addEventListener('resize', () => { page.style.height = Math.max(wrap.clientHeight / S.zoom - 24, page._minH || 0, S.cursor.y + 300) + 'px'; });
 $('#loading').remove();
 if (window.MatlistAndroid && window.MatlistAndroid.ready) { try { window.MatlistAndroid.ready(); } catch (e) {} }
-window.MATLIST_DEBUG = { ink, inkOpen, inkClose, inkRecognize, inkInsert, openWspHelp, S, saveXmcd, saveDocx, printSheetHtml, zipStore, setKbd, shiftBelow, clip: () => clip, lib: () => lib, sheetUndo, sheetRedo, openLib, recompute, render, setSheet, commit, ensureTarget, insert, press: (tab, label) => { const k = (TABS[tab] || []).find(x => x.l === label); if (k) press(k); }, activate };
+window.MATLIST_DEBUG = { ink, inkOpen, inkClose, inkRecognize, inkInsert, openWspHelp, S, saveXmcd, sheetXml, openBug, sendBug, bugReportText, logErr, saveDocx, printSheetHtml, zipStore, setKbd, shiftBelow, clip: () => clip, lib: () => lib, sheetUndo, sheetRedo, openLib, recompute, render, setSheet, commit, ensureTarget, insert, press: (tab, label) => { const k = (TABS[tab] || []).find(x => x.l === label); if (k) press(k); }, activate };
 })();

@@ -1,0 +1,34 @@
+name: Ошибка
+description: Что-то посчиталось неверно, упало, не открылось или неудобно
+title: "[P1] "
+labels: [bug]
+body:
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Насколько серьёзно
+      options:
+        - P0 — неверное число без предупреждения, падение, потеря или порча файла
+        - P1 — мешает работать (не открывается файл, не работает функция)
+        - P2 — неудобство, внешний вид
+      default: 1
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: Что делали, что ожидали, что получилось
+      placeholder: "Открыл курсовая.xmcd, поменял P₁ на 3 МПа — h₂ не пересчиталась; в Mathcad 3125 кДж/кг"
+    validations:
+      required: true
+  - type: textarea
+    id: report
+    attributes:
+      label: Отчёт из приложения
+      description: Меню → «Сообщить об ошибке…» собирает версию, устройство и журнал. Вставьте его сюда, лист .xmcd приложите файлом.
+      render: text
+  - type: input
+    id: version
+    attributes:
+      label: Версия
+      placeholder: "0.8.13"
