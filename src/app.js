@@ -263,14 +263,15 @@ function regionElCached(r, all) {
 function hide(o, k, v) { Object.defineProperty(o, k, { value: v, writable: true, configurable: true, enumerable: false }); } // служебное поле: не сохраняется в лист
 function render(all) {
   // элементы, которые уже на странице и не изменились, остаются на месте (без снятия и повторной вёрстки)
-  const keep = new Set(); let maxX = 0, maxY = 0; const fresh = [];
+  const keep = new Set(); let maxX = 0, maxY = 0; const els = [];
   for (const r of S.regions) {
-    const old = r._el, el = regionElCached(r, all === true);
-    if (el === old && el.parentNode === page) keep.add(el); else { fresh.push(el); keep.add(el); }
+    const el = regionElCached(r, all === true); keep.add(el); els.push(el);
     const wide = r.kind === 'plot' || r.kind === 'image'; maxX = Math.max(maxX, r.x + (wide ? r.w + 20 : 0)); maxY = Math.max(maxY, r.y + (wide ? r.h + 60 : 60));
   }
   for (const el of [...page.children]) if (!keep.has(el)) el.remove();
-  if (fresh.length) { const fr = document.createDocumentFragment(); for (const el of fresh) fr.appendChild(el); page.appendChild(fr); }
+  // порядок элементов — как у регионов; на месте стоящие не трогаются
+  let cur = page.firstChild;
+  for (const el of els) { if (el === cur) { cur = cur.nextSibling; continue; } page.insertBefore(el, cur); }
   // ширина страницы — по настоящей ширине формул и текста; ширина элемента запоминается (меряются только новые)
   { let k = 0;
     for (const r of S.regions) { const el = r._el; if (!el || el._lazy || r.kind === 'plot' || r.kind === 'image') continue;
