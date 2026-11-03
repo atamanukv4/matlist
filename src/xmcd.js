@@ -43,6 +43,10 @@ function conv(el) {
     case 'function': { const k = kids(el); const name = idName(k[0]); const params = kids(k[1]).map(x => ({ type: 'id', name: idName(x) })); return { type: 'call', f: name, args: params }; }
     case 'apply': return convApply(el);
     case 'program': return { type: 'prog', lines: kids(el).map(progLine) };
+    case 'chem': { // «химическое» имя Mathcad: подпись-выражение (p_H2O·l) — это одно имя переменной
+      const txt = e => local(e) === 'id' ? idName(e) : local(e) === 'apply' ? kids(e).slice(1).map(txt).join({ mult: '·', plus: '+', minus: '-', div: '/' }[local(kids(e)[0])] || '·') : local(e) === 'parens' ? '(' + kids(e).map(txt).join('') + ')' : (e.textContent || '').trim();
+      return { type: 'id', name: kids(el).map(txt).join(''), chem: true };
+    }
     case 'localDefine': { const k = kids(el); return { type: 'lset', lhs: conv(k[0]), rhs: conv(k[1]) }; } // присваивание внутри выражения: c_(n ← last(c))
     case 'sequence': return unsupported('последовательность');
     case 'unitOverride': return null;

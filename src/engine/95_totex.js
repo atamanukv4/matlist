@@ -19,6 +19,7 @@ function tex(n, p) {
     case 'str': return '\\text{"' + n.v + '"}';
     case 'imag': return String(n.v) + 'i';
     case 'id': if (n.name === '%') return String.fromCharCode(92) + '%';
+      if (n.chem || /[·+/()]/.test(n.name)) return '\\text{' + n.name + '}'; // «химическое» имя: p_H2O·l
       return (n.unit || n.u) && /^[A-Za-zμÅΩ_]+$/.test(n.name) ? '\\mathrm{' + n.name.replace(/_/g, '\\_') + '}' : nameToTex(n.name);
     case 'paren': return '\\left(' + tex(n.e, 0) + '\\right)';
     case 'prog': return progTex(n);
@@ -32,7 +33,7 @@ function tex(n, p) {
       if (o === '·' && n.r.type === 'id' && /^Δ?°[CF]?$/.test(n.r.name)) return wrap(tex(n.l, PREC.mul) + '\\,' + n.r.name, PREC.mul);
       if (o === '·') return wrap(tex(n.l, PREC.mul) + '\\cdot ' + tex(n.r, PREC.mul + 1), PREC.mul);
       const cm = { '<': '<', '>': '>', '≤': '\\le ', '≥': '\\ge ', '≠': '\\ne ', '==': '=' }[o];
-      if (cm) return wrap(tex(n.l, PREC.cmp + 1) + cm + tex(n.r, PREC.cmp + 1), PREC.cmp);
+      if (cm) { const chain = ['<', '>', '≤', '≥'].includes(o) && n.l.type === 'bin' && ['<', '>', '≤', '≥'].includes(n.l.op); return wrap(tex(n.l, chain ? PREC.cmp : PREC.cmp + 1) + cm + tex(n.r, PREC.cmp + 1), PREC.cmp); } // −2 ≤ x ≤ 0 без скобок — двойное неравенство
       if (o === '∧') return wrap(tex(n.l, PREC.and) + '\\land ' + tex(n.r, PREC.and + 1), PREC.and);
       if (o === '∨') return wrap(tex(n.l, PREC.or) + '\\lor ' + tex(n.r, PREC.or + 1), PREC.or);
       return tex(n.l, 0) + o + tex(n.r, 0);

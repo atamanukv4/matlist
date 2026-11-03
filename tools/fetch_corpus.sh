@@ -25,4 +25,14 @@ mariaisabelasn/UTFPR | Instrumentacao-Eletro-Eletronica/05 - filtros ativos/2 - 
 VenerinnaWolf/uni-studies | Maths/Statistics/ДЗ4/ДЗ4.xmcd
 mrgick/labs | 3_курс/mathcad/8/1.xmcd
 grind-t/learn | university/mathcad-practice/Практика.xmcd
+KhAlfred97/Simulation-of-the-movement-of-a-supersonic-aircraft | MathCad.xmcd
+Kirill010/RTU-MIREA | 3 курс/5 семестр/Прикладные задачи нелинейной динамики/дз4/4.xmcd
+Linhtetung/NumericalMethods | EulerMethod.xmcd
+CallBan/ssau | 3 курс/1 семестр/Вычислительные методы/ЛР2.xmcd
+AndreevAA/BMSTU | eduSem_3/fundamentalsOfElectronics/LR_3/Result/lab_03.xmcd
+LDK28/BMSTU-IU7 | 3 семестр/Основы электроники/ЛР_1_10/lab_01.xmcd
+Fergustinia/Study | 2 Курс/2 Курс/вычмат/1лаба/LABA1.xmcd
+PasaOpasen/Old_Math_Projects | Оптимальное управление/Lab1.xmcd
+Polina24zinoveva/3_course | Вычислительные_методы/ВМ2.xmcd
+Arhetype/ChislMetod | lab8/Mat.xmcd
 LIST

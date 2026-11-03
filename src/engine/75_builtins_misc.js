@@ -15,7 +15,7 @@ function gammaFn(x) { // Ланцош
   return Math.sqrt(2 * Math.PI) * Math.pow(t, x + 0.5) * Math.exp(-t) * a;
 }
 def('Γ Gamma', a => gammaFn(toNum(a[0])));
-def('erf', realFn(x => { const t = 1 / (1 + 0.5 * Math.abs(x)); const y = 1 - t * Math.exp(-x * x - 1.26551223 + t * (1.00002368 + t * (0.37409196 + t * (0.09678418 + t * (-0.18628806 + t * (0.27886807 + t * (-1.13520398 + t * (1.48851587 + t * (-0.82215223 + t * 0.17087277))))))))); return x >= 0 ? y : -y; }));
+def('erf', realFn(x => (x >= 0 ? 1 : -1) * gammaP(0.5, x * x))); // через неполную гамма-функцию: точность ~1e-15
 def('erfc', a => 1 - B['erf'].fn(a));
 def('pnorm', a => { const x = toNum(a[0]), m = toNum(a[1]), s = toNum(a[2]); return 0.5 * (1 + B['erf'].fn([(x - m) / (s * Math.SQRT2)])); });
 def('dnorm', a => { const x = toNum(a[0]), m = toNum(a[1]), s = toNum(a[2]); return Math.exp(-((x - m) ** 2) / (2 * s * s)) / (s * Math.sqrt(2 * Math.PI)); });

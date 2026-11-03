@@ -14,7 +14,6 @@ function execStatement(st, env, opts) {
 function literalSub(lhs, env) {
   if (!lhs.ix) return true;
   if (env.has(lhs.e.name + '_' + lhs.raw)) return true; // уже есть такая переменная
-  { const base = env.get(keyOf(lhs.e)); if (base !== undefined && !(base instanceof Mat)) return true; } // P := 10, затем P_1 := 5 — это другая переменная, а не элемент
   let undef = false;
   (function w(q) { if (undef || !q || typeof q !== 'object') return; if (Array.isArray(q)) return q.forEach(w);
     if (q.type === 'id' && !env.has(keyOf(q))) { undef = true; return; } // единица (s, m) индексом быть не может
@@ -25,7 +24,16 @@ function execStatement0(st, env, opts) {
   const ctx = new Ctx(env, opts);
   if (st.type === 'empty') return { env };
   if (st.type === 'define') {
-    const lhs = st.lhs; let value;
+    let lhs = st.lhs; let value;
+    if (lhs.type === 'sub' && lhs.e.type === 'paren' && lhs.e.e.type === 'id') lhs = Object.assign({}, lhs, { e: lhs.e.e }); // (x)_i := … — то же, что x_i
+    if (lhs.type === 'col' && lhs.e.type === 'id') { // M^⟨j⟩ := v — столбец матрицы
+      const name = keyOf(lhs.e); const o = ORIGIN(env); const j = toInt(evalNode(lhs.j, env, ctx), 'Номер столбца') - o; if (j < 0) throw err('Отрицательный номер столбца');
+      const v = asMat(evalNode(st.rhs, env, ctx)); if (v.c !== 1) throw err('Справа нужен вектор-столбец');
+      const cur = env.get(name); let M = cur instanceof Mat ? cur : new Mat(v.r, 0, []);
+      const nr = Math.max(M.r, v.r), nc = Math.max(M.c, j + 1); const N = new Mat(nr, nc); for (let p = 0; p < M.r; p++) for (let q = 0; q < M.c; q++) N.set(p, q, M.get(p, q));
+      for (let p = 0; p < v.r; p++) N.set(p, j, v.a[p]);
+      const newEnv = env.child(); newEnv.set(name, N); return { env: newEnv, value: st.show ? v : undefined, name };
+    }
     const newEnv = env.child();
     if (lhs.type === 'call') { // f(x, y) := …
       const params = lhs.args.map(a => { if (a.type !== 'id') throw err('Параметры функции — имена переменных'); return a.name; });
@@ -70,9 +78,10 @@ function execStatement0(st, env, opts) {
         tick();
         const idx = lhs.ix.map(x => toInt(evalNode(x, local, ctx)) - o);
         if (cur !== undefined || M.r) local.set(name, M); // x_i := x_{i-1} + h — справа видны уже вычисленные элементы (как в Mathcad)
-        const v = toScalar(evalNode(st.rhs, local, ctx));
+        const v0 = evalNode(st.rhs, local, ctx); const v = v0 instanceof Mat && !(v0.r === 1 && v0.c === 1) ? v0 : toScalar(v0); // элемент-массив — вложенный массив Mathcad
         const i = idx[0], j = idx.length > 1 ? idx[1] : 0;
         if (i < 0 || j < 0) throw err('Отрицательный индекс');
+        if (j === 0 && M.c <= 1 && i >= M.r) { M.c = 1; while (M.a.length < i) M.a.push(0); M.a[i] = 0; M.r = i + 1; } // вектор растёт на месте — без копирования на каждом шаге
         if (i >= M.r || j >= M.c) { const nr = Math.max(M.r, i + 1), nc = Math.max(M.c, j + 1); const N = new Mat(nr, nc); for (let p = 0; p < M.r; p++) for (let q = 0; q < M.c; q++) N.set(p, q, M.get(p, q)); M = N; }
         M.set(i, j, v); lastV = v;
       };

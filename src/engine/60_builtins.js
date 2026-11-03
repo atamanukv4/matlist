@@ -1,7 +1,7 @@
 const BUILTIN_NAMES = new Set();
 function realFn(f) { return (args) => { if (args.length !== 1) throw err('Ожидался один аргумент'); return mapScalar(args[0], x => f(toNum(x))); }; }
 function mapScalarU(v, f) { if (v instanceof Mat) return new Mat(v.r, v.c, v.a.map(f)); return f(v); }
-function mapScalar(v, f) { const g = x => { if (x instanceof Q) throw err('Нужна безразмерная величина (сейчас ' + dimText(x.d) + ')'); return f(x); }; if (v instanceof Mat) return new Mat(v.r, v.c, v.a.map(g)); return g(v); }
+function mapScalar(v, f) { const g = x => { if (x instanceof Q && cabs(x.v) === 0) x = 0; /* ноль совместим с любыми единицами, как в Mathcad */ if (x instanceof Q) throw err('Нужна безразмерная величина (сейчас ' + dimText(x.d) + ')'); return f(x); }; if (v instanceof Mat) return new Mat(v.r, v.c, v.a.map(g)); return g(v); }
 const B = {}; // встроенные функции: (args, ctx) => value
 function def(names, fn, lazy) { for (const n of names.split(' ')) { B[n] = { fn, lazy: !!lazy }; BUILTIN_NAMES.add(n); } }
 def('sin', a => mapScalar(a[0], csin));
@@ -85,4 +85,3 @@ def('rkfixed', (a, ctx) => {
   if (n < 1 || n > 200000) throw err('rkfixed: число шагов 1…200000');
   return rk4fixed(y0, x1, x2, n, (x, y) => { const r = ctx.callFn(D, [x, colVec(y)]); const v = r instanceof Mat ? r.a.map(t => toNum(t)) : [toNum(r)]; if (v.length !== y.length) throw err('rkfixed: D должна возвращать вектор длины ' + y.length); return v; });
 });
-def('Rkadapt rkadapt Bulstoer', (a, ctx) => B['rkfixed'].fn(a, ctx));

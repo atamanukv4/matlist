@@ -43,6 +43,7 @@ function evalNode(n, env, ctx) {
     case 'pow': {
       const b = evalNode(n.b, env, ctx), e = evalNode(n.e, env, ctx);
       if (b instanceof Mat) {
+        if (b.r !== b.c && (b.r === 1 || b.c === 1) && !(e instanceof Mat)) return new Mat(b.r, b.c, b.a.map(x => cpow(x, e))); // вектор в степени — поэлементно (как Mathcad: 1/(1+x²) по вектору x)
         const k = toInt(e, 'Степень матрицы'); if (b.r !== b.c) throw err('Степень — только для квадратной матрицы');
         if (k < 0) { let inv = luSolve(b, identity(b.r)); let r = identity(b.r); for (let q = 0; q < -k; q++) r = matmul(r, inv); return r; }
         let r = identity(b.r); for (let q = 0; q < k; q++) r = matmul(r, b); return r;
@@ -51,7 +52,9 @@ function evalNode(n, env, ctx) {
       return cpow(b, e);
     }
     case 'sqrt': return mapScalarU(evalNode(n.e, env, ctx), csqrt);
-    case 'root': { const k = toNum(evalNode(n.n, env, ctx)); const x = evalNode(n.e, env, ctx); return mapScalar(x, v => (typeof v === 'number' && v < 0 && Number.isInteger(k) && k % 2 === 1) ? -Math.pow(-v, 1 / k) : cpow(v, 1 / k)); }
+    case 'root': { const k = toNum(evalNode(n.n, env, ctx)); const x = evalNode(n.e, env, ctx); const one = v => (typeof v === 'number' && v < 0 && Number.isInteger(k) && k % 2 === 1) ? -Math.pow(-v, 1 / k) : cpow(v, 1 / k);
+      if (x instanceof Q) { const r = one(x.v); return q(r, dScale(x.d, 1 / k)); } // ⁴√(K⁴) = K
+      return mapScalar(x, one); }
     case 'abs': { const v = evalNode(n.e, env, ctx); if (v instanceof Mat) { if (v.r === v.c && v.r > 1) return det(v); return Math.sqrt(v.a.reduce((s, x) => s + cabs(x) ** 2, 0)); } if (v instanceof Str) return v.s.length; return cabs(v); }
     case 'fact': { const v = toNum(evalNode(n.e, env, ctx)); return factorial(v); }
     case 'transpose': return transpose(asMat(evalNode(n.e, env, ctx)));
@@ -138,9 +141,9 @@ function evalBin(n, env, ctx) {
 }
 function evalSub(n, env, ctx) {
   // 1) литеральное имя x_пв, если определено
-  if (n.e.type === 'id') {
+  if (n.e.type === 'id') { // индекс-подпись (x.н) и элемент (x[i) у одного имени различаются: массив — элемент, иначе — подпись
     const lit = n.e.name + '_' + n.raw;
-    if (env.has(lit)) return env.get(lit);
+    if (env.has(lit) && !(n.ix && env.get(keyOf(n.e)) instanceof Mat)) return env.get(lit);
   }
   // 2) индекс массива
   const base = evalNode(n.e, env, ctx);
@@ -248,7 +251,7 @@ function rangeVals(r, env, ctx) {
 }
 function evalProg(n, env, ctx) {
   const local = env.child(); const st = { steps: 0 };
-  try { return runProg(n, local, ctx, st); }
+  try { const v = runProg(n, local, ctx, st); if (v === undefined) throw err('Программа не вернула значения'); return v; }
   catch (e) { if (e instanceof ProgSignal) { if (e.kind === 'return') return e.v; throw err('«' + e.kind + '» вне цикла'); } throw e; }
 }
 function runProg(n, local, ctx, st) {
@@ -259,19 +262,19 @@ function runProg(n, local, ctx, st) {
     switch (L.k) {
       case 'expr': last = evalNode(L.e, local, ctx); break;
       case 'set': last = progSet(L, local, ctx); break;
-      case 'if': if (ifRun === null) ifRun = false; if (toNum(evalNode(L.cond, local, ctx), 'Условие if') !== 0) { ifRun = true; last = runProg(L.body, local, ctx, st); } break;
-      case 'else': if (!ifRun) last = runProg(L.body, local, ctx, st); ifRun = null; break;
+      case 'if': if (ifRun === null) ifRun = false; if (toNum(evalNode(L.cond, local, ctx), 'Условие if') !== 0) { ifRun = true; const v = runProg(L.body, local, ctx, st); if (v !== undefined) last = v; } break;
+      case 'else': if (!ifRun) { const v = runProg(L.body, local, ctx, st); if (v !== undefined) last = v; } ifRun = null; break;
       case 'for': {
         for (const x of rangeVals(L.range, local, ctx)) {
           local.set(L.v, x);
-          try { last = runProg(L.body, local, ctx, st); } catch (e) { if (e instanceof ProgSignal && e.kind === 'break') break; if (e instanceof ProgSignal && e.kind === 'continue') continue; throw e; }
+          try { const v = runProg(L.body, local, ctx, st); if (v !== undefined) last = v; } catch (e) { if (e instanceof ProgSignal && e.kind === 'break') break; if (e instanceof ProgSignal && e.kind === 'continue') continue; throw e; }
         }
         break;
       }
       case 'while': {
         while (toNum(evalNode(L.cond, local, ctx), 'Условие while') !== 0) {
           if (++st.steps > PROG_STEPS) throw err('Цикл while выполняется слишком долго'); tick();
-          try { last = runProg(L.body, local, ctx, st); } catch (e) { if (e instanceof ProgSignal && e.kind === 'break') break; if (e instanceof ProgSignal && e.kind === 'continue') continue; throw e; }
+          try { const v = runProg(L.body, local, ctx, st); if (v !== undefined) last = v; } catch (e) { if (e instanceof ProgSignal && e.kind === 'break') break; if (e instanceof ProgSignal && e.kind === 'continue') continue; throw e; }
         }
         break;
       }
@@ -280,8 +283,7 @@ function runProg(n, local, ctx, st) {
       case 'onerr': try { last = runProg(L.body, local, ctx, st); } catch (e) { if (e instanceof ProgSignal) throw e; last = runProg(L.alt, local, ctx, st); } break;
     }
   }
-  if (last === undefined) throw err('Программа не вернула значения');
-  return last;
+  return last; // вложенный блок может не дать значения (if не сработал) — тогда остаётся значение предыдущей строки
 }
 function progSet(L, local, ctx) {
   const lhs = L.lhs; const v = evalNode(L.rhs, local, ctx);
@@ -290,7 +292,7 @@ function progSet(L, local, ctx) {
     if (literalSub(lhs, local)) { local.set(lhs.e.name + '_' + lhs.raw, v); return v; }
     const name = keyOf(lhs.e); const o = ORIGIN(local);
     const idx = lhs.ix.map(x => toInt(evalNode(x, local, ctx)) - o);
-    local.set(name, setIndexed(local.get(name), idx, toScalar(v))); return v;
+    local.set(name, setIndexed(local.get(name), idx, v instanceof Mat && !(v.r === 1 && v.c === 1) ? v : toScalar(v))); return v;
   }
   if (lhs.type === 'matrix') { const names = [].concat(...lhs.rows); const vals = vecOf(v); if (vals.length !== names.length) throw err('Слева ' + names.length + ' имён, справа ' + vals.length); names.forEach((nm, k) => { if (nm.type !== 'id') throw err('Слева — имена'); local.set(nm.name, vals[k]); }); return v; }
   throw err('Неверная левая часть «←»');

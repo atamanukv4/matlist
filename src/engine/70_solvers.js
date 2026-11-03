@@ -1,17 +1,83 @@
+// root(f(x), x) и root(f(x), x, a, b). Как в Mathcad: x и f могут быть с единицами; комплексное начальное
+// приближение — ищется комплексный корень. Без интервала: секущая с затуханием шага (выход за область определения —
+// шаг уменьшается), не сошлась — поиск смены знака вокруг приближения и Брент.
 def('root', (a, ctx) => {
   if (a.length !== 2 && a.length !== 4) throw err('root(f(x), x) или root(f(x), x, a, b)');
   const v = a[1]; if (v.type !== 'id') throw err('root: второй аргумент — имя переменной');
-  const local = ctx.env.child(); const f = x => { local.set(v.name, x); return toNum(ctx.evIn(a[0], local), 'Функция в root'); };
-  if (a.length === 4) { const lo = toNum(ctx.ev(a[2])), hi = toNum(ctx.ev(a[3])); return brent(f, lo, hi, 1e-13); }
-  const g = ctx.env.get(v.name); if (g === undefined) throw err('root: задайте начальное приближение ' + v.name + ' := … выше или укажите интервал');
-  return secantRoot(f, toNum(g));
+  const local = ctx.env.child(); let dim = null, fdim = null;
+  const val = x => { tick(); local.set(v.name, dim ? q(x, dim) : x); let y = ctx.evIn(a[0], local); if (y instanceof Mat && y.r === 1 && y.c === 1) y = y.a[0]; if (y instanceof Q) { fdim = y.d; y = y.v; } return y; };
+  const real = x => { let y; try { y = val(x); } catch (e) { if (e.timeout) throw e; return NaN; } if (isC(y)) return Math.abs(y.im) <= 1e-9 * Math.max(1, Math.abs(y.re)) ? y.re : NaN; return typeof y === 'number' ? y : NaN; };
+  const done = x => dim ? q(x, dim) : x;
+  if (a.length === 4) {
+    let lo = ctx.ev(a[2]), hi = ctx.ev(a[3]);
+    if (lo instanceof Q || hi instanceof Q) { const lq = lo instanceof Q ? lo : hi; dim = lq.d; if (!dimEq(qd(lo), dim) || !dimEq(qd(hi), dim)) throw err('root: у концов интервала разные единицы'); lo = qv(lo); hi = qv(hi); }
+    lo = toNum(lo, 'Конец интервала'); hi = toNum(hi, 'Конец интервала');
+    const fa = real(lo), fb = real(hi);
+    if (!isFinite(fa) || !isFinite(fb)) throw err('root: функция не определена на конце интервала');
+    if (fa * fb > 0) throw err('root: на концах интервала [' + fmtReal(lo) + '; ' + fmtReal(hi) + '] функция одного знака — корня там нет или их чётное число');
+    return done(brent(real, lo, hi, 1e-13 * Math.max(1, Math.abs(lo), Math.abs(hi))));
+  }
+  let g = ctx.env.get(v.name); if (g === undefined || g instanceof Fn) throw err('root: задайте начальное приближение ' + prettyName(v.name) + ' := … выше или укажите интервал root(f, ' + prettyName(v.name) + ', a, b)');
+  if (g instanceof Q) { dim = g.d; g = g.v; }
+  if (g instanceof Mat) throw err('root: начальное приближение — число');
+  if (isC(g) && Math.abs(g.im) > 0) return done(complexSecant(val, g));
+  const x0 = toNum(g, 'Начальное приближение');
+  let r = dampedSecant(real, x0); if (r !== null) return done(r);
+  r = bracketSearch(real, x0); if (r !== null) return done(r);
+  // вещественного корня нет — пробуем комплексный (как Mathcad при y² + 1)
+  try { const z = complexSecant(val, new C(x0, Math.max(1e-3, Math.abs(x0) * 0.1))); return done(z); } catch (e) { if (e.timeout) throw e; }
+  throw err('root не нашёл корня рядом с ' + prettyName(v.name) + ' = ' + fmtReal(x0) + ' — задайте другое приближение или интервал root(f, ' + prettyName(v.name) + ', a, b)');
 }, true);
+function rootTol(x) { return 1e-12 * Math.max(1, Math.abs(x)); }
+function dampedSecant(F, x0) {
+  let xa = x0, fa = F(xa); if (!isFinite(fa)) return null; if (fa === 0) return xa;
+  let xb = x0 === 0 ? 1e-4 : x0 * (1 + 1e-4), fb = F(xb);
+  if (!isFinite(fb)) { xb = x0 === 0 ? -1e-4 : x0 * (1 - 1e-4); fb = F(xb); if (!isFinite(fb)) return null; }
+  for (let it = 0; it < 300; it++) {
+    if (fb === 0) return xb;
+    const den = fb - fa; if (den === 0) break;
+    let step = -fb * (xb - xa) / den; let xn = xb + step, fn = F(xn), h = 0;
+    while ((!isFinite(fn) || Math.abs(fn) > 4 * Math.abs(fb)) && h < 40) { step /= 2; xn = xb + step; fn = F(xn); h++; } // затухание
+    if (!isFinite(fn)) break;
+    xa = xb; fa = fb; xb = xn; fb = fn;
+    if (Math.abs(xb - xa) <= rootTol(xb)) return Math.abs(fb) < 1e-6 * Math.max(1, Math.abs(fa)) || Math.abs(fb) < 1e-9 ? xb : null;
+  }
+  return Math.abs(fb) < 1e-10 ? xb : null;
+}
+function bracketSearch(F, x0) { // смена знака на расширяющихся шагах вправо и влево от x0
+  const f0 = F(x0); let h = Math.max(Math.abs(x0), 1) * 1e-3;
+  let L = x0, fL = f0, Rr = x0, fR = f0;
+  for (let k = 0; k < 70; k++, h *= 1.6) {
+    const xr = x0 + h, fr = F(xr);
+    if (isFinite(fr) && isFinite(fR) && fr * fR <= 0) return brent(F, Rr, xr, rootTol(xr) * 0.1);
+    if (isFinite(fr)) { Rr = xr; fR = fr; }
+    const xl = x0 - h, fl = F(xl);
+    if (isFinite(fl) && isFinite(fL) && fl * fL <= 0) return brent(F, xl, L, rootTol(xl) * 0.1);
+    if (isFinite(fl)) { L = xl; fL = fl; }
+  }
+  return null;
+}
+function complexSecant(val, z0) {
+  const F = z => { const y = val(z); if (!isNum(y)) throw err('root: функция должна возвращать число'); return y; };
+  let za = z0, fa = F(za), zb = cadd(z0, mk(1e-4 * Math.max(1, cabs(z0)), 1e-4)), fb = F(zb);
+  for (let it = 0; it < 300; it++) {
+    if (cabs(fb) === 0) return zb;
+    const den = csub(fb, fa); if (cabs(den) === 0) break;
+    const zn = csub(zb, cdiv(cmul(fb, csub(zb, za)), den)); if (!isFinite(re(zn)) || !isFinite(im(zn))) break;
+    za = zb; fa = fb; zb = zn; fb = F(zb);
+    if (cabs(csub(zb, za)) <= 1e-12 * Math.max(1, cabs(zb))) break;
+  }
+  if (cabs(fb) < 1e-8) { const r = re(zb), i = im(zb); return Math.abs(i) <= 1e-10 * Math.max(1, Math.abs(r)) ? r : mk(r, i); }
+  throw err('root: комплексный корень не найден');
+}
 // ───── блоки решений: Given … Find / Minerr / Minimize / Maximize / Odesolve ─────
 function guesses(args, ctx, fname) {
   return args.map(a => {
     if (a.type !== 'id') throw err(fname + ': аргументы — имена неизвестных');
     const v = ctx.env.get(a.name);
-    if (v === undefined || v instanceof Fn) throw err(fname + ': задайте начальное приближение ' + prettyName(a.name) + ' := … выше Given');
+    if (v instanceof Fn) throw err(fname + ': «' + prettyName(a.name) + '» — функция, а нужна неизвестная');
+    if (v === undefined) return { name: a.name, v: 1 }; // приближение не задано — начинаем с 1 (для линейных уравнений этого достаточно)
+    if (v instanceof Q) return { name: a.name, v: toNum(v.v, 'Начальное приближение'), d: v.d }; // приближение с единицами — ответ в тех же единицах
     return { name: a.name, v: toNum(v, 'Начальное приближение') };
   });
 }
@@ -25,13 +91,18 @@ function splitGiven(given, fname) {
   }
   return { eqs, ineqs };
 }
-function residuals(eqs, ineqs, names, ctx) {
+function residuals(eqs, ineqs, names, ctx, dims) {
   const local = ctx.env.child();
+  const pair = (l, r) => { // уравнения с единицами сравниваются в СИ; комплексное значение по пути (√ отрицательного) — штраф, а не ошибка
+    const a = evalNode(l, local, ctx), b = evalNode(r, local, ctx); if (!dimEq(qd(a), qd(b)) && !isZeroVal(a) && !isZeroVal(b)) throw unitMismatch(a, b);
+    const av = toScalar(qv(a)), bv = toScalar(qv(b));
+    if (isC(av) || isC(bv)) { const d = csub(av, bv); const m = cabs(d); return [re(d) >= 0 ? m : -m, 0]; }
+    return [toNum(av), toNum(bv)]; };
   return x => {
-    names.forEach((n, i) => local.set(n, x[i]));
+    names.forEach((n, i) => local.set(n, dims && dims[i] ? q(x[i], dims[i]) : x[i]));
     const r = []; let scale = 1;
-    for (const e of eqs) { const a = toNum(evalNode(e.l, local, ctx)), b = toNum(evalNode(e.r, local, ctx)); r.push(a - b); scale = Math.max(scale, Math.abs(a), Math.abs(b)); }
-    for (const q of ineqs) { const a = toNum(evalNode(q.l, local, ctx)), b = toNum(evalNode(q.r, local, ctx)); const v = (q.op === '<' || q.op === '≤') ? a - b : b - a; r.push(v > 0 ? v : 0); }
+    for (const e of eqs) { const [a, b] = pair(e.l, e.r); r.push(a - b); scale = Math.max(scale, Math.abs(a), Math.abs(b)); }
+    for (const c of ineqs) { const [a, b] = pair(c.l, c.r); const v = (c.op === '<' || c.op === '≤') ? a - b : b - a; r.push(v > 0 ? v : 0); }
     r.scale = scale; return r;
   };
 }
@@ -62,12 +133,21 @@ function solveGiven(args, ctx, fname, strict) {
   if (!given.length) throw err(fname + ': в блоке Given нет уравнений');
   const g = guesses(args, ctx, fname); const names = g.map(q => q.name);
   const { eqs, ineqs } = splitGiven(given, fname);
-  const f = residuals(eqs, ineqs, names, ctx);
-  const res = levmar(f, g.map(q => q.v));
-  const nrm = Math.sqrt(res.cost), scale = res.r.scale || 1;
+  const dims = g.map(q => q.d || null);
+  const f = residuals(eqs, ineqs, names, ctx, dims);
   const ctol = toNum(ctx.env.get('CTOL') !== undefined ? ctx.env.get('CTOL') : 1e-3);
-  if (strict && !(nrm <= Math.max(1e-9, Math.min(ctol, 1e-6) * scale))) throw err('Решение не найдено — измените начальные приближения или проверьте уравнения');
-  return names.length === 1 ? res.x[0] : colVec(res.x);
+  const good = r => r && isFinite(r.cost) && Math.sqrt(r.cost) <= Math.max(1e-9, Math.min(ctol, 1e-6) * (r.r.scale || 1));
+  const x0 = g.map(q => q.v); let res = null; try { res = levmar(f, x0); } catch (e) { if (e.timeout) throw e; }
+  if (strict && !good(res)) { // из приближения не сошлось — ещё несколько стартов рядом (знаки, масштаб), как запасной ход
+    const starts = []; const n = x0.length;
+    if (n <= 4) for (let m = 1; m < (1 << n); m++) starts.push(x0.map((v, i) => (m >> i) & 1 ? -(v || 1) : v));
+    for (const k of [0.5, 2, 0.1, 10]) starts.push(x0.map(v => (v || 1) * k));
+    for (const st of starts) { let r; try { r = levmar(f, st); } catch (e) { if (e.timeout) throw e; continue; } if (good(r)) { res = r; break; } }
+  }
+  if (!res) throw err('Решение не найдено — измените начальные приближения или проверьте уравнения');
+  if (strict && !good(res)) throw err('Решение не найдено — измените начальные приближения или проверьте уравнения');
+  const out = res.x.map((x, i) => dims[i] ? q(x, dims[i]) : x);
+  return names.length === 1 ? out[0] : colVec(out);
 }
 def('Find find', (a, ctx) => solveGiven(a, ctx, 'Find', true), true);
 def('Minerr minerr', (a, ctx) => solveGiven(a, ctx, 'Minerr', false), true);

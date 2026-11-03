@@ -43,7 +43,7 @@ function fmtValue(v, f, unitTex) {
   }
   if (v instanceof Mat) {
     const MAXR = 14, MAXC = 8;
-    const rows = []; for (let i = 0; i < Math.min(v.r, MAXR); i++) { const cells = []; for (let j = 0; j < Math.min(v.c, MAXC); j++) cells.push(fmtScalar(v.get(i, j), f)); if (v.c > MAXC) cells.push('\\cdots'); rows.push(cells.join('&')); }
+    const rows = []; for (let i = 0; i < Math.min(v.r, MAXR); i++) { const cells = []; for (let j = 0; j < Math.min(v.c, MAXC); j++) { const x = v.get(i, j); cells.push(x instanceof Mat ? '\\{' + x.r + '\\times ' + x.c + '\\}' : fmtScalar(x, f)); } /* вложенный массив — как в Mathcad: {3×1} */ if (v.c > MAXC) cells.push('\\cdots'); rows.push(cells.join('&')); }
     if (v.r > MAXR) rows.push(new Array(Math.min(v.c, MAXC)).fill('\\vdots').join('&'));
     if (v.r === 0) return '\\text{пустой массив}';
     return '\\begin{bmatrix}' + rows.join('\\\\') + '\\end{bmatrix}';

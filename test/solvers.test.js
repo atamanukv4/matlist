@@ -3,7 +3,7 @@ const E = require('../src/engine.js');
 let fails = 0, n = 0;
 function sheet(lines) { const R = new E.SheetRunner(0); let last; for (const l of lines) { last = R.step(E.parse(l)); } return { last, R }; }
 function near(name, got, want, tol = 1e-6) {
-  n++; const g = Array.isArray(want) ? E.vecOf(got).map(x => E.toNum(x)) : [E.toNum(got)]; const w = Array.isArray(want) ? want : [want];
+  n++; const g = Array.isArray(want) ? (Array.isArray(got) ? got : E.vecOf(got)).map(x => E.toNum(x)) : [E.toNum(got)]; const w = Array.isArray(want) ? want : [want];
   const ok = g.length === w.length && g.every((v, i) => Math.abs(v - w[i]) <= tol * Math.max(1, Math.abs(w[i])));
   if (!ok) { fails++; console.log('FAIL', name, g, 'ожидалось', w); }
 }
@@ -28,7 +28,9 @@ run('Find: тепловой баланс (как в курсовой)', () => {
   near('Find G', last.value, 150);
 });
 throws('Find без решения', ['x\\coloneq1', 'Given', 'x^2=-4', '\\operatorname{Find}(x)='], /не найдено/);
-throws('Find без приближения', ['Given', 'q=2', '\\operatorname{Find}(q)='], /приближение/);
+run('Find без приближения — начинает с 1', () => near('Find(q) без q := …', sheet(['Given', 'q=2', '\\operatorname{Find}(q)=']).last.value, 2));
+run('Find с единицами', () => near('Find(L, W) в метрах', sheet(['L\\coloneq 1\\,'+'\\mathrm{m}', 'W\\coloneq 1\\,'+'\\mathrm{m}', 'Given', 'L\\cdot W=6\\,\\mathrm{m}^{2}', 'L-W=1\\,\\mathrm{m}', '\\operatorname{Find}\\left(L,W\\right)=']).last.value.a.map(q => q.v), [3, 2]));
+run('root: единицы, затухание, комплексный', () => { near('root с м', sheet(['x\\coloneq 1\\,\\mathrm{m}', '\\operatorname{root}(x^2-2\\,\\mathrm{m}^2,x)=']).last.value.v, Math.SQRT2); near('root e^-x', sheet(['x\\coloneq 10', '\\operatorname{root}(e^{-x}-0.1,x)=']).last.value, Math.log(10)); near('root y²+1', E.im(sheet(['y\\coloneq 1', '\\operatorname{root}(y^2+1,y)=']).last.value), 1); });
 throws('Find без Given', ['x\\coloneq1', '\\operatorname{Find}(x)='], /Given/);
 run('Minerr без решения даёт лучшее приближение', () => {
   const { last } = sheet(['x\\coloneq1', 'Given', 'x^2=-4', '\\operatorname{Minerr}(x)=']);

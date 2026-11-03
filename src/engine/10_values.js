@@ -29,6 +29,7 @@ function cln(a) {
   return mk(Math.log(cabs(a)), carg(a));
 }
 function cpow(a, b) {
+  if (b instanceof Q && cabs(b.v) === 0) b = 0; // e^(0·с⁻¹) = 1: нулевой показатель с единицами допустим (Mathcad)
   if (b instanceof Q) throw err('Показатель степени должен быть безразмерным');
   if (a instanceof Q) { const p = toNum(b, 'Показатель степени величины с единицами'); return q(cpow(a.v, p), dScale(a.d, p)); }
   if (typeof a === 'number' && typeof b === 'number') {
