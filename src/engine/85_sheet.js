@@ -50,7 +50,9 @@ function execStatement0(st, env, opts) {
       const fr = freeRanges(lhs.ix || [], env, new Set(), []);
       let cur = env.get(name); let M = cur instanceof Mat ? new Mat(cur.r, cur.c, cur.a.slice()) : new Mat(0, 1, []); let lastV;
       const assign = (local) => {
+        tick();
         const idx = lhs.ix.map(x => toInt(evalNode(x, local, ctx)) - o);
+        if (cur !== undefined || M.r) local.set(name, M); // x_i := x_{i-1} + h — справа видны уже вычисленные элементы (как в Mathcad)
         const v = toScalar(evalNode(st.rhs, local, ctx));
         const i = idx[0], j = idx.length > 1 ? idx[1] : 0;
         if (i < 0 || j < 0) throw err('Отрицательный индекс');
@@ -62,7 +64,7 @@ function execStatement0(st, env, opts) {
         const local = env.child();
         const loop = (k) => { if (k === fr.length) return assign(local); for (const v of env.get(fr[k]).vals) { local.set(fr[k], v); loop(k + 1); } };
         loop(0);
-      } else assign(env);
+      } else assign(env.child());
       newEnv.set(name, M); return { env: newEnv, value: st.show ? (fr.length ? M : lastV) : undefined, name };
     }
     throw err('Неверная левая часть определения');
@@ -73,7 +75,7 @@ function execStatement0(st, env, opts) {
     if (fr.length) { // таблица значений по ранжированной переменной
       const rv = env.get(fr[0]).vals; const local = env.child(); const out = [];
       if (rv.length > 2000) throw err('Слишком длинная таблица');
-      for (const v of rv) { local.set(fr[0], v); const r = evalNode(st.expr, local, ctx); out.push(r); }
+      for (const v of rv) { tick(); local.set(fr[0], v); const r = evalNode(st.expr, local, ctx); out.push(r); }
       return { env, value: new Rng(out), table: true };
     }
     let v;
@@ -145,7 +147,7 @@ class SheetRunner {
     let out;
     try { out = execStatement(st, this.env, { given: this.given }); }
     finally { if (closes) this.given = null; }
-    this.env = out.env; out.before = before; return out;
+    this.env = out.env.depth > 6 ? out.env.flat() : out.env; out.before = before; return out;
   }
 }
 

@@ -1,10 +1,18 @@
 // ───────────────────────── Вычисление ─────────────────────────
+// Окружение: цепочка областей. На длинном листе каждое := добавляет звено, и поиск имени шёл бы через сотни звеньев —
+// поэтому SheetRunner схлопывает цепочку листа в один снимок (flat). Окружения циклов меняются (set) — их не схлопываем.
 class Env {
-  constructor(parent) { this.vars = new Map(); this.parent = parent || null; }
-  get(n) { for (let e = this; e; e = e.parent) if (e.vars.has(n)) return e.vars.get(n); return undefined; }
+  constructor(parent) { this.vars = new Map(); this.parent = parent || null; this.depth = parent ? parent.depth + 1 : 0; }
+  get(n) { for (let e = this; e; e = e.parent) { const v = e.vars.get(n); if (v !== undefined || e.vars.has(n)) return v; } return undefined; }
   has(n) { for (let e = this; e; e = e.parent) if (e.vars.has(n)) return true; return false; }
-  set(n, v) { this.vars.set(n, v); }
+  set(n, v) { this.vars.set(n, v); this._flat = null; }
   child() { return new Env(this); }
+  flat() {
+    if (this._flat) return this._flat;
+    const chain = []; for (let e = this; e; e = e.parent) chain.push(e);
+    const F = new Env(null); for (let k = chain.length - 1; k >= 0; k--) for (const [n, v] of chain[k].vars) F.vars.set(n, v);
+    return (this._flat = F);
+  }
 }
 
 const CONSTS = { 'π': Math.PI, e: Math.E, i: new C(0, 1), j: new C(0, 1), ORIGIN: 0, TOL: 1e-3, CTOL: 1e-3 };

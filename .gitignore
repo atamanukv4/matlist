@@ -9,5 +9,6 @@ android/local.properties
 *.iml
 .idea/
 test/fixtures/*.xmcd
+!test/fixtures/sample24.xmcd
 model/
 corpus/

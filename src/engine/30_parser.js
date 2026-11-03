@@ -8,6 +8,7 @@ const GREEK = {
 const GREEK_TO_TEX = Object.fromEntries(Object.entries(GREEK).filter(([k]) => !['varepsilon', 'varphi', 'varrho'].includes(k)).map(([k, v]) => [v, '\\' + k]));
 const FUNC_CMDS = new Set(['sin', 'cos', 'tan', 'cot', 'sec', 'csc', 'arcsin', 'arccos', 'arctan', 'sinh', 'cosh', 'tanh', 'coth', 'ln', 'log', 'lg',
   'exp', 'det', 'max', 'min', 'arg', 'tg', 'ctg', 'arctg', 'gcd', 'Re', 'Im', 'mod']);
+const PROG_KW = new Set(['if', 'otherwise', 'else', 'for', 'while', 'break', 'continue', 'return', 'on', 'error']);
 const SPACES = new Set([',', ';', ':', '!', ' ', 'quad', 'qquad', 'enspace', 'thinspace', 'medspace', 'thickspace']);
 
 // Токенизатор LaTeX: команды, символы, группы {}
@@ -48,20 +49,24 @@ class Parser {
         if (SPACES.has(x.v) || x.v === 'displaystyle' || x.v === 'limits' || x.v === 'nolimits') continue;
         if (x.v === 'left' || x.v === 'right' || x.v === 'bigl' || x.v === 'bigr' || x.v === 'Bigl' || x.v === 'Bigr') {
           const nx = this.t[i + 1];
-          if (nx && nx.k === 'cmd' && nx.v === '.') { i++; continue; } // \left. пустая скобка
+          if (nx && nx.v === '.') { i++; continue; } // \left. пустая скобка
           continue;
         }
         if (GREEK[x.v]) { out.push({ k: 'ch', v: GREEK[x.v] }); continue; }
+        if ((x.v === 'mathbf' || x.v === 'textbf') && this.t[i + 1] && this.t[i + 1].v === '{') { // \mathbf{if} — слово программы Mathcad
+          let j = i + 2, w = ''; while (j < this.t.length && this.t[j].k === 'ch' && /^[a-z]$/.test(this.t[j].v)) w += this.t[j++].v;
+          if (this.t[j] && this.t[j].v === '}' && PROG_KW.has(w)) { out.push({ k: 'kw', v: w === 'else' ? 'otherwise' : w }); i = j; continue; }
+        }
         const map = {
           cdot: '·', times: '×', div: '÷', ast: '·', le: '≤', leq: '≤', ge: '≥', geq: '≥', ne: '≠', neq: '≠', lt: '<', gt: '>',
           coloneq: ':=', coloneqq: ':=', equiv: '≡', land: '∧', wedge: '∧', lor: '∨', vee: '∨', neg: '¬', lnot: '¬', lbrack: '[', rbrack: ']',
           lbrace: '{', rbrace: '}', vert: '|', lvert: '|', rvert: '|', mid: '|', infty: '∞', prime: "'", ldots: '..', dots: '..', cdots: '..',
           to: '→', rightarrow: '→', '%': '%', '{': '{', '}': '}', '_': '_', imaginaryI: 'i', exponentialE: 'e', differentialD: 'ⅆ', pm: '±',
-          langle: '⟨', rangle: '⟩', degree: '°', circ: '°', oplus: '⊕', placeholder: '■'
+          langle: '⟨', rangle: '⟩', leftarrow: '←', gets: '←', in: '∈', degree: '°', circ: '°', oplus: '⊕', placeholder: '■'
         };
         if (map[x.v] !== undefined) {
           const v = map[x.v];
-          if (['·', '×', '÷', '≤', '≥', '≠', '<', '>', ':=', '≡', '∧', '∨', '¬', '..', '→', '±', '⊕'].includes(v)) out.push({ k: 'op', v });
+          if (['·', '×', '÷', '≤', '≥', '≠', '<', '>', ':=', '≡', '∧', '∨', '¬', '..', '→', '±', '⊕', '←', '∈'].includes(v)) out.push({ k: 'op', v });
           else out.push({ k: 'ch', v });
           if (x.v === 'placeholder') { // \placeholder{} — пропустить {}
             if (this.t[i + 1] && this.t[i + 1].v === '{') { let d = 0, j = i + 1; for (; j < this.t.length; j++) { if (this.t[j].v === '{') d++; if (this.t[j].v === '}') { d--; if (!d) break; } } i = j; }
@@ -176,7 +181,7 @@ class Parser {
   startsPrimary() {
     const x = this.peek(); if (!x) return false;
     if (x.k === 'num' || x.k === 'imag') return true;
-    if (x.k === 'op') return false;
+    if (x.k === 'op' || x.k === 'kw') return false;
     if (x.k === 'cmd') return !['end', '\\', 'right'].includes(x.v) && x.v !== '&';
     if (x.k === 'ch') return !['+', '-', '−', ')', ']', '}', ',', '=', '|', '&', '^', '_', '!', "'", '<', '>', '%', '.', ';'].includes(x.v);
     return false;
@@ -193,6 +198,7 @@ class Parser {
     return l;
   }
   absOpensHere() { // «|» начинает модуль, если дальше есть парная «|»
+    if (this.progAt(this.p + 1)) return false; // «|» программы — не модуль и не умножение
     let d = 0;
     for (let i = this.p + 1; i < this.t.length; i++) { const x = this.t[i]; if (x.v === '{' || x.v === '(') d++; if (x.v === '}' || x.v === ')') d--; if (d < 0) return false; if (d === 0 && x.v === '|') return true; }
     return false;
@@ -265,8 +271,10 @@ class Parser {
       if (x.v === '(') { const e = this.parseExpr(); if (this.is(',')) { /* кортеж не поддерживается */ } this.expect(')'); return { type: 'paren', e }; }
       if (x.v === '[') { const e = this.parseExpr(); this.expect(']'); return { type: 'paren', e }; }
       if (x.v === '{') { this.p--; const toks = this.groupTokens(); const p = this.sub(toks); const e = p.parseRangeOrExpr(); if (!p.eof()) throw err('Не удалось разобрать: ' + p.restText()); return e; }
+      if (x.v === '|' && this.progAt(this.p)) return this.parseProgram();
       if (x.v === '|') { const e = this.parseExpr(); this.expect('|'); return { type: 'abs', e }; }
       if (x.v === '∞') return { type: 'num', v: 1e307 };
+      if (x.v === '%') return { type: 'id', name: '%', u: true }; // встроенная единица Mathcad: 11·% = 0.11
       if (x.v === '°') return { type: 'id', name: this.degName() };
       if (x.v === 'Δ' && this.is('°')) { this.next(); return { type: 'id', name: 'Δ' + this.degName() }; }
       if (x.v === 'ⅆ') throw err('Неожиданный дифференциал d');
@@ -383,6 +391,53 @@ class Parser {
   }
   parseMulOnly() { // тело Σ: до + или − верхнего уровня
     return this.parseMul();
+  }
+  // ───── программы Mathcad: \left|\begin{aligned}&строка\\&строка\end{aligned}\right. ─────
+  progAt(i) { const a = this.t[i], b = this.t[i + 1], c = this.t[i + 2]; return a && a.k === 'cmd' && a.v === 'begin' && b && b.v === '{' && c && c.k === 'ch' && c.v === 'a' && /^aligned\}/.test(this.t.slice(i + 2, i + 10).map(x => x.v).join('')); }
+  parseProgram() {
+    this.next(); this.groupTokens(); // \begin{aligned}
+    const rows = [[]]; let d = 0;
+    while (!this.eof()) {
+      const x = this.next();
+      if (x.k === 'cmd' && x.v === 'begin') d++;
+      if (x.k === 'cmd' && x.v === 'end') { if (d === 0) { this.groupTokens(); break; } d--; }
+      if (d === 0 && x.k === 'cmd' && x.v === '\\') { rows.push([]); continue; }
+      if (d === 0 && x.k === 'ch' && x.v === '&') continue;
+      rows[rows.length - 1].push(x);
+    }
+    const lines = rows.filter(r => r.length).map(r => this.sub(r).parseProgLine());
+    if (!lines.length) throw err('Пустая программа');
+    return { type: 'prog', lines };
+  }
+  topIndex(toks, pred) { let d = 0; for (let i = 0; i < toks.length; i++) { const x = toks[i]; if ((x.k === 'ch' && (x.v === '{' || x.v === '(' || x.v === '[')) || (x.k === 'cmd' && x.v === 'begin')) d++; if ((x.k === 'ch' && (x.v === '}' || x.v === ')' || x.v === ']')) || (x.k === 'cmd' && x.v === 'end')) d--; if (d === 0 && pred(x)) return i; } return -1; }
+  progBody(toks) { // тело: вложенная программа или одна строка
+    const p = this.sub(toks);
+    if (p.is('|') && p.progAt(1)) { p.next(); const pr = p.parseProgram(); if (!p.eof()) throw err('Не удалось разобрать: ' + p.restText()); return pr; }
+    return { type: 'prog', lines: [p.parseProgLine()] };
+  }
+  parseProgLine() {
+    const toks = this.t.slice(this.p); this.p = this.t.length; const kw = toks[0] && toks[0].k === 'kw' ? toks[0].v : null;
+    const exprOf = (ts, range) => { const p = this.sub(ts); const e = range ? p.parseRangeOrExpr() : p.parseExpr(); if (!p.eof()) throw err('Не удалось разобрать: ' + p.restText()); return e; };
+    const splitBody = (ts) => { // «условие тело»: тело — с «|» программы или после первого выражения
+      const p = this.sub(ts); const e = p.parseRangeOrExpr(); const rest = ts.slice(p.p); if (!rest.length) throw err('Нет тела цикла'); return [e, this.progBody(rest)];
+    };
+    if (kw === 'for') {
+      const inAt = this.topIndex(toks, x => x.k === 'op' && x.v === '∈'); if (inAt < 0) throw err('for: ожидалось «i ∈ диапазон»');
+      const v = exprOf(toks.slice(1, inAt)); if (v.type !== 'id') throw err('for: переменная цикла — имя');
+      const [range, body] = splitBody(toks.slice(inAt + 1)); return { k: 'for', v: v.name, range, body };
+    }
+    if (kw === 'while') { const [cond, body] = splitBody(toks.slice(1)); return { k: 'while', cond, body }; }
+    const ifAt = this.topIndex(toks, x => x.k === 'kw' && x.v === 'if');
+    if (ifAt > 0) return { k: 'if', body: this.progBody(toks.slice(0, ifAt)), cond: exprOf(toks.slice(ifAt + 1)) };
+    const owAt = this.topIndex(toks, x => x.k === 'kw' && x.v === 'otherwise');
+    if (owAt > 0) return { k: 'else', body: this.progBody(toks.slice(0, owAt)) };
+    const onAt = this.topIndex(toks, x => x.k === 'kw' && x.v === 'on');
+    if (onAt > 0 && toks[onAt + 1] && toks[onAt + 1].v === 'error') return { k: 'onerr', body: this.progBody(toks.slice(0, onAt)), alt: this.progBody(toks.slice(onAt + 2)) };
+    if (kw === 'break' || kw === 'continue') return { k: kw };
+    if (kw === 'return') return { k: 'return', e: exprOf(toks.slice(1)) };
+    const setAt = this.topIndex(toks, x => x.k === 'op' && x.v === '←');
+    if (setAt > 0) return { k: 'set', lhs: exprOf(toks.slice(0, setAt)), rhs: exprOf(toks.slice(setAt + 1), true) };
+    return { k: 'expr', e: exprOf(toks) };
   }
   parseEnv() {
     const nameT = this.groupTokens(); const name = this.groupRaw(nameT);

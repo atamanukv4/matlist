@@ -52,6 +52,28 @@ const UNIT_DEFS = [
 ];
 const UNITS = new Map();
 for (const [n, f, d] of UNIT_DEFS) { const dd = D0.map((_, k) => d[k] || 0); UNITS.set(n, { name: n, v: q(f, dd), f, d: dd }); }
+// русские имена единиц — так их хранит русская версия Mathcad 15 (мм, кПа, Вт …) и так их пишут в листах
+const RU_UNITS = {
+  'м': 'm', 'см': 'cm', 'мм': 'mm', 'км': 'km', 'мкм': 'μm', 'нм': 'nm', 'дм': [0.1, 'm'],
+  'кг': 'kg', 'г': 'gm', 'гр': 'gm', 'мг': 'mg', 'т': 'tonne', 'ц': [100, 'kg'],
+  'с': 's', 'сек': 's', 'мс': 'ms', 'мкс': 'μs', 'мин': 'min', 'ч': 'hr', 'час': 'hr', 'сут': 'day', 'нед': 'wk', 'год': 'yr',
+  'А': 'A', 'мА': 'mA', 'кА': 'kA', 'К': 'K', 'моль': 'mol', 'кмоль': 'kmol', 'кд': 'cd', 'лм': 'lm', 'лк': 'lx',
+  'га': 'ha', 'л': 'L', 'мл': 'mL',
+  'Н': 'N', 'кН': 'kN', 'МН': 'MN', 'кгс': 'kgf', 'тс': [9806.65, 'N'],
+  'Па': 'Pa', 'кПа': 'kPa', 'МПа': 'MPa', 'ГПа': 'GPa', 'гПа': 'hPa', 'бар': 'bar', 'мбар': 'mbar', 'атм': 'atm', 'ат': [98066.5, 'Pa'],
+  'мм_рт_ст': 'mmHg', 'ммртст': 'mmHg', 'мм_вод_ст': 'mmH2O', 'торр': 'torr',
+  'Дж': 'J', 'кДж': 'kJ', 'МДж': 'MJ', 'ГДж': 'GJ', 'кал': 'cal', 'ккал': 'kcal', 'Мкал': [4.1868e6, 'J'], 'Гкал': 'Gcal', 'эВ': 'eV', 'кВтч': 'kWh', 'кВт_ч': 'kWh', 'МВтч': [3.6e9, 'J'],
+  'Вт': 'W', 'кВт': 'kW', 'МВт': 'MW', 'ГВт': 'GW', 'мВт': 'mW', 'лс': 'hp',
+  'Гц': 'Hz', 'кГц': 'kHz', 'МГц': 'MHz', 'об_мин': 'rpm', 'Бк': 'Bq',
+  'Кл': 'C', 'В': 'V', 'мВ': 'mV', 'кВ': 'kV', 'Ом': 'Ω', 'кОм': 'kΩ', 'МОм': 'MΩ', 'См': 'S',
+  'Ф': 'F', 'мкФ': 'μF', 'нФ': 'nF', 'пФ': 'pF', 'Гн': 'H', 'мГн': 'mH', 'Вб': 'Wb', 'Тл': 'T', 'мТл': 'mT',
+  'Гр': 'Gy', 'Зв': 'Sv', 'П': 'poise', 'Ст': 'stokes',
+  'рад': 'rad', 'град': 'deg', 'ср': 'sr', 'об': 'rev'
+};
+for (const [ru, to] of Object.entries(RU_UNITS)) {
+  const [k, base] = Array.isArray(to) ? to : [1, to]; const b = UNITS.get(base); if (!b) continue;
+  const f = b.f * k; UNITS.set(ru, { name: ru, v: q(f, b.d), f, d: b.d, ru: true });
+}
 // °C и °F — постфиксные функции Mathcad: 20 °C = 293.15 K
 class TempScale { constructor(name, k, off) { this.name = name; this.k = k; this.off = off; } }
 const TEMP = { '°C': new TempScale('°C', 1, 273.15), '°F': new TempScale('°F', 5 / 9, 459.67 * 5 / 9) };

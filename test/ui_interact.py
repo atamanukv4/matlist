@@ -4,6 +4,7 @@ from playwright.sync_api import sync_playwright
 
 ROOT = os.path.join(os.path.dirname(__file__), '..', 'dist', 'apk-assets')
 FIX = os.path.join(os.path.dirname(__file__), 'fixtures')
+TGMP = os.path.join(FIX, 'tgmp.xmcd') if os.path.exists(os.path.join(FIX, 'tgmp.xmcd')) else os.path.join(FIX, 'sample24.xmcd')  # личный лист или публичный учебный
 OUT = sys.argv[1]
 os.makedirs(OUT, exist_ok=True)
 srv = subprocess.Popen([sys.executable, '-m', 'http.server', '8766', '-d', ROOT], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -75,7 +76,7 @@ try:
         pg.click('#bMenu')
         with pg.expect_file_chooser() as fc:
             pg.click('#mOpen')
-        fc.value.set_files(os.path.join(FIX, 'tgmp.xmcd')); pg.wait_for_timeout(1200)
+        fc.value.set_files(TGMP); pg.wait_for_timeout(1200)
         info = pg.evaluate("({ name: MATLIST_DEBUG.S.name, n: MATLIST_DEBUG.S.regions.length, errs: MATLIST_DEBUG.S.regions.filter(r => r.err).length, res: MATLIST_DEBUG.S.regions.filter(r => r.res).map(r => r.res) })")
         check('открывается .xmcd (ТГМП-314)', info['n'] == 24 and info['errs'] == 0 and len(info['res']) == 3, info)
         pg.screenshot(path=f'{OUT}/i4_xmcd.png')

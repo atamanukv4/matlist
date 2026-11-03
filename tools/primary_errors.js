@@ -2,7 +2,7 @@
 const fs=require('fs'),path=require('path');const {DOMParser}=require('@xmldom/xmldom');
 const E=require('../src/engine.js'),X=require('../src/xmcd.js');
 const f=process.argv[2];const imp=X.importXmcd(fs.readFileSync(f,'utf8'),DOMParser);
-const math=imp.regions.filter(r=>r.kind==='math').sort((a,b)=>a.y-b.y||a.x-b.x);
+const math=imp.regions.filter(r=>r.kind==='math').sort((a,b)=>((a.y+(a.ady||0))-(b.y+(b.ady||0)))||(a.x-b.x));
 const R=new E.SheetRunner(imp.settings.origin||0);const failedDefs=new Set();const prim=[];
 const kinds={};for(const r of imp.regions)kinds[r.kind]=(kinds[r.kind]||0)+1;
 for(const r of math){ if(!r.latex||r.noeval)continue; let st=null;

@@ -4,7 +4,7 @@
   "description": "Матлист — рабочий лист в духе Mathcad 15 для телефона",
   "scripts": {
     "build": "node build.js",
-    "test": "node test/engine.test.js && node test/solvers.test.js && node test/roundtrip.test.js"
+    "test": "node test/engine.test.js && node test/solvers.test.js && node test/roundtrip.test.js && node test/stage1.test.js"
   },
   "keywords": [],
   "author": "",

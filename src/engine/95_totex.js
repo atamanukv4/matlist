@@ -18,8 +18,10 @@ function tex(n, p) {
     case 'num': { let s = String(n.v); if (/e/.test(s)) { const [m, e] = s.split('e'); s = m + '\\cdot10^{' + parseInt(e) + '}'; return wrap(s, PREC.mul); } return n.v < 0 ? wrap(s, PREC.neg) : s; }
     case 'str': return '\\text{"' + n.v + '"}';
     case 'imag': return String(n.v) + 'i';
-    case 'id': return (n.unit || n.u) && /^[A-Za-zμÅΩ_]+$/.test(n.name) ? '\\mathrm{' + n.name.replace(/_/g, '\\_') + '}' : nameToTex(n.name);
+    case 'id': if (n.name === '%') return String.fromCharCode(92) + '%';
+      return (n.unit || n.u) && /^[A-Za-zμÅΩ_]+$/.test(n.name) ? '\\mathrm{' + n.name.replace(/_/g, '\\_') + '}' : nameToTex(n.name);
     case 'paren': return '\\left(' + tex(n.e, 0) + '\\right)';
+    case 'prog': return progTex(n);
     case 'neg': return wrap('-' + tex(n.e, PREC.neg), PREC.neg);
     case 'un': return wrap('\\neg ' + tex(n.e, PREC.neg), PREC.neg);
     case 'bin': {
@@ -65,3 +67,22 @@ function stmtToTex(st) {
   return '';
 }
 
+
+// программа: \left|\begin{aligned}&строка\\&строка\end{aligned}\right.
+function progTex(n) { return '\\left|\\begin{aligned}' + n.lines.map(l => '&' + progLineTex(l)).join('\\\\') + '\\end{aligned}\\right.'; }
+function progBodyTex(b) { const L = b.lines; return L.length === 1 && !['for', 'while', 'if', 'else', 'onerr'].includes(L[0].k) ? progLineTex(L[0]) : progTex(b); }
+const SP = String.fromCharCode(92) + ';'; // «\;» — пробел в строке программы
+function progLineTex(l) {
+  const K = w => '\\mathbf{' + w + '}';
+  switch (l.k) {
+    case 'expr': return tex(l.e, 0);
+    case 'set': return tex(l.lhs, 0) + '\\leftarrow ' + tex(l.rhs, 0);
+    case 'if': return progBodyTex(l.body) + SP + K('if') + SP + tex(l.cond, 0);
+    case 'else': return progBodyTex(l.body) + SP + K('otherwise');
+    case 'for': return K('for') + SP + nameToTex(l.v) + '\\in ' + tex(l.range, 0) + SP + progTex(l.body);
+    case 'while': return K('while') + SP + tex(l.cond, 0) + SP + progTex(l.body);
+    case 'return': return K('return') + SP + tex(l.e, 0);
+    case 'onerr': return progBodyTex(l.body) + SP + K('on') + SP + K('error') + SP + progBodyTex(l.alt);
+    default: return K(l.k);
+  }
+}

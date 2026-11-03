@@ -27,6 +27,7 @@ function build(mode) {
   put('/*INK_JS*/', rd('src/ink.js'));
   put('/*MD_JS*/', rd('src/md.js'));
   put('/*PLOT_JS*/', rd('src/plot.js'));
+  put('/*CALCWORKER_JS*/', rd('src/calcworker.js'));
   put('/*EXPORT_JS*/', rd('src/export.js'));
   put('/*TEST_JS*/', rd('src/testsheet.js'));
   put('/*APP_JS*/', rd('src/app.js'));

@@ -23,27 +23,114 @@ const tex2html = (t) => { try { return ML.convertLatexToMarkup(t, { mathstyle: '
 
 // ───────── пересчёт листа ─────────
 function sorted() { return S.regions.slice().sort((a, b) => ((a.y + (a.ady || 0)) - (b.y + (b.ady || 0))) || (a.x - b.x)); } // ady — базовая линия региона Mathcad
+// Сначала лист считается здесь же, но каждому региону даётся лимит времени. Регион, который не уложился
+// (вложенные интегралы, длинные циклы), и всё после него досчитывает фоновый поток (src/calcworker.js);
+// результаты приходят порциями, а интерфейс тем временем работает. «Стоп» на плашке прерывает счёт.
+const SYNC_REGION_MS = 250, SYNC_TOTAL_MS = 700;
+function applyOut(r, st, out) {
+  if (out.given) r.role = 'given'; else if (out.constraint) r.role = 'cons';
+  else if (st.sym && out.value instanceof E.Fn) r.res = E.toTex(st.rhs); // f(x) := … → — показываем выражение
+  else if (out.value !== undefined && out.value !== null) { const v = out.shown !== undefined ? out.shown : out.value; r.res = E.fmtValue(v, S.fmt, out.unitTex); r.tbl = v instanceof E.Rng; }
+}
 function recompute() {
-  const R = new E.SheetRunner(S.origin || 0);
-  for (const r of sorted()) {
+  stopWorker(true);
+  const R = new E.SheetRunner(S.origin || 0); const list = sorted(); const t0 = Date.now(); let from = -1;
+  list.forEach((r, i) => {
+    r._series = null;
+    if (r.kind === 'math') { r.res = null; r.err = null; r.tbl = false; r.role = null; r.pending = false; }
+    if (from >= 0) { if (r.kind === 'math') { r.pending = true; } else if (r.kind === 'plot') r.env = null; return; }
     if (r.kind === 'math') {
-      r.res = null; r.err = null; r.tbl = false; r.role = null; r.before = { env: R.env, given: R.given ? R.given.slice() : null };
-      if (!r.latex || !r.latex.trim() || r.noeval) continue; // noeval — формула из .md, показывается как записана
-      let st = null;
+      r.before = { env: R.env, given: R.given ? R.given.slice() : null };
+      if (!r.latex || !r.latex.trim() || r.noeval) return; // noeval — формула из .md, показывается как записана
+      let st = null; const snap = { env: R.env, given: R.given ? R.given.slice() : null };
+      E.budget(Math.max(30, Math.min(SYNC_REGION_MS, SYNC_TOTAL_MS - (Date.now() - t0))));
       try {
         st = E.parse(r.latex); r.stmt = st.type;
-        const out = R.step(st);
-        if (out.given) r.role = 'given'; else if (out.constraint) r.role = 'cons';
-        else if (st.sym && out.value instanceof E.Fn) r.res = E.toTex(st.rhs); // f(x) := … → — показываем выражение
-        else if (out.value !== undefined && out.value !== null) { const v = out.shown !== undefined ? out.shown : out.value; r.res = E.fmtValue(v, S.fmt, out.unitTex); r.tbl = v instanceof E.Rng; }
+        applyOut(r, st, R.step(st));
+        if (E.budgetExpired()) throw new E.TimeoutErr();
       } catch (e) {
+        if (e.timeout || E.budgetExpired()) { from = i; r.pending = true; r.res = null; R.env = snap.env; R.given = snap.given; return; }
         // «→» над неопределёнными именами: как символьный вывод Mathcad — выражение остаётся как есть
         if (st && st.sym && st.type === 'eval' && /не определена/.test(e.message || '')) r.res = E.toTex(st.expr);
         else r.err = e.message || String(e);
-      }
+      } finally { E.budget(null); }
     } else if (r.kind === 'plot') { r.env = R.env; }
-  }
+  });
+  if (from >= 0) startWorker(list, from, R);
 }
+
+// ───────── фоновый пересчёт ─────────
+let worker = null, wSeq = 0, wRun = null; // wRun: { seq, list, R, byId, next } — что ждём от потока
+function workerCode() {
+  const src = id => { const el = document.getElementById(id); return el ? el.textContent : ''; };
+  return ['js-wspd', 'js-wsp', 'js-engine', 'js-plot', 'js-calcworker'].map(src).join('\n;\n');
+}
+function ensureWorker() {
+  if (worker) return worker;
+  try { worker = new Worker(URL.createObjectURL(new Blob([workerCode()], { type: 'text/javascript' }))); }
+  catch (e) { worker = null; return null; }
+  worker.onmessage = ev => onWorker(ev.data);
+  worker.onerror = ev => { const run = wRun; stopWorker(false); if (run) { for (const r of run.list) if (r.pending) { r.pending = false; r.err = 'Фоновый пересчёт: ' + (ev.message || 'ошибка'); } render(); } };
+  return worker;
+}
+function plotMsg(r) { return { id: r.id, kind: 'plot', ys: r.ys, xs: r.xs, xmin: r.xmin, xmax: r.xmax, view: r.view || null, logx: !!r.logx }; }
+function startWorker(list, from, R) {
+  const w = ensureWorker();
+  if (!w) { // потоков нет — досчитать здесь же, без лимита
+    for (let i = from; i < list.length; i++) { const r = list[i]; r.pending = false; if (r.kind === 'plot') { r.env = R.env; continue; } if (r.kind !== 'math' || !r.latex || r.noeval) continue; r.before = { env: R.env, given: R.given ? R.given.slice() : null }; let st = null; try { st = E.parse(r.latex); applyOut(r, st, R.step(st)); } catch (e) { r.err = e.message || String(e); } }
+    return;
+  }
+  const seq = ++wSeq; const byId = new Map(list.map(r => [r.id, r]));
+  wRun = { seq, list, R, byId, next: from, t0: Date.now() };
+  const regions = list.map(r => r.kind === 'plot' ? plotMsg(r) : { id: r.id, kind: r.kind, latex: r.kind === 'math' ? r.latex : undefined, noeval: !!r.noeval });
+  w.postMessage({ cmd: 'run', seq, origin: S.origin || 0, fmt: S.fmt, from, regions });
+  showBusy(true);
+}
+function stopWorker(silent) {
+  if (worker && wRun) { worker.terminate(); worker = null; } // поток занят — его нельзя прервать иначе
+  const run = wRun; wRun = null; showBusy(false);
+  if (run && !silent) { for (const r of run.list) if (r.pending) { r.pending = false; r.err = 'Пересчёт остановлен'; } }
+}
+// результаты по порядку: окружение интерфейса повторяется без вычислений (значения — из потока)
+function onWorker(m) {
+  if (m.type === 'series') {
+    const r = (wRun && wRun.seq === m.seq ? wRun.byId.get(m.id) : null) || S.regions.find(x => x.id === m.id);
+    if (r && !m.err) { MP.setSeries(r, m.key, m.data); r._seriesWait = false; } else if (r) { r._seriesWait = false; r._seriesErr = m.err; }
+    if (r) { redrawPlotRegion(r); if (plotEdit && plotEdit.r === r && typeof refreshPlot === 'function') refreshPlot(); }
+    return;
+  }
+  const run = wRun; if (!run || run.seq !== m.seq) return;
+  if (m.type === 'res') {
+    const got = new Map(m.items.map(it => [it.id, it]));
+    const { list, R } = run;
+    while (run.next < list.length) {
+      const r = list[run.next];
+      if (r.kind === 'plot') { r.env = R.env; run.next++; continue; }
+      if (r.kind !== 'math') { run.next++; continue; }
+      const it = got.get(r.id); if (!it) break;
+      r.pending = false; r.before = { env: R.env, given: R.given ? R.given.slice() : null };
+      r.res = it.res; r.err = it.err; r.role = it.role; r.tbl = it.tbl; r.stmt = it.stmt;
+      if (r.latex && r.latex.trim() && !r.noeval) { try { R.replay(E.parse(r.latex), it.err ? null : it.delta); } catch (e) { /* разбор уже прошёл в потоке */ } }
+      run.next++;
+    }
+    render(); updateBusy();
+  } else if (m.type === 'done') { wRun = null; showBusy(false); render(); }
+}
+function requestSeries(r) { // график не успел построиться здесь — точки посчитает поток
+  if (r._seriesWait) return; const w = ensureWorker(); if (!w) return;
+  r._seriesWait = true; w.postMessage({ cmd: 'series', seq: wSeq, plot: plotMsg(r) });
+}
+function showBusy(on) {
+  let b = $('#busy');
+  if (!b) { b = h('div', 'busy'); b.id = 'busy'; const t = h('span', 'bt', 'Считается…'); const x = h('button', '', 'Стоп'); x.addEventListener('click', () => { stopWorker(false); render(); toast('Пересчёт остановлен'); }); b.appendChild(t); b.appendChild(x); document.body.appendChild(b); }
+  b.classList.toggle('on', !!on); if (on) updateBusy();
+}
+function updateBusy() {
+  const b = $('#busy'); if (!b || !wRun) return;
+  const left = wRun.list.filter(r => r.pending).length; const sec = Math.round((Date.now() - wRun.t0) / 1000);
+  b.querySelector('.bt').textContent = 'Считается: ' + left + ' ф.' + (sec ? ' · ' + sec + ' с' : '');
+}
+setInterval(() => { if (wRun) updateBusy(); }, 1000);
 
 // «x = [кВт]»: единицы вывода показываются после результата, а не в самой формуле
 function unitPart(t) { const m = /=\s*\\left\[(.*)\\right\]\s*$/.exec(t || ''); return m ? m[1] : null; }
@@ -75,6 +162,7 @@ function regionEl(r) {
     if (r.role) el.classList.add(r.role);
     const eq = h('span', 'eq'); eq.innerHTML = tex2html(shownLatex(r) || '\\placeholder{}'); el.appendChild(eq);
     if (r.res) { const rs = h('span', 'res' + (r.tbl ? ' tbl' : '')); rs.innerHTML = tex2html(r.res); el.appendChild(rs); }
+    if (r.pending) { el.classList.add('pending'); const m = h('span', 'emsg wait', 'считается…'); el.appendChild(m); }
     if (r.err) {
       if (r.stored != null && /=\s*$/.test(shownLatex(r))) { const rs = h('span', 'res'); rs.style.color = 'var(--stored)'; const sv = Array.isArray(r.stored) ? new E.Mat(r.stored.length, 1, r.stored) : r.stored; rs.innerHTML = tex2html(E.fmtValue(sv, S.fmt, unitPart(r.latex))); el.appendChild(rs); const m = h('span', 'smsg', 'значение из файла · ' + r.err); el.appendChild(m); }
       else { const m = h('span', 'emsg', r.err); el.appendChild(m); }
@@ -101,8 +189,19 @@ function regionEl(r) {
 function sizeCanvas(cv, w, h) { const dpr = window.devicePixelRatio || 1; cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); cv.style.width = w + 'px'; cv.style.height = h + 'px'; return dpr; }
 function paintPlot(cv, r, lab, extra) {
   const dpr = sizeCanvas(cv, r.w, r.h);
-  try { MP.draw(cv, r, Object.assign({ dpr, onImg: () => paintPlot(cv, r, lab, extra) }, extra || {})); if (lab) { lab.textContent = ''; lab.style.color = ''; } }
-  catch (e) { const g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.fillStyle = '#fff'; g.fillRect(0, 0, r.w, r.h); g.strokeStyle = '#d0d5dd'; g.strokeRect(0.5, 0.5, r.w - 1, r.h - 1); if (lab) { lab.textContent = e.message; lab.style.color = 'var(--err)'; } }
+  const blank = () => { const g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.fillStyle = '#fff'; g.fillRect(0, 0, r.w, r.h); g.strokeStyle = '#d0d5dd'; g.strokeRect(0.5, 0.5, r.w - 1, r.h - 1); };
+  const say = (t, bad) => { if (lab) { lab.textContent = t; lab.style.color = bad ? 'var(--err)' : ''; } };
+  if (!r.env && !MP.cachedSeries(r) && !(r.snap && (r.snapOnly || r.showSnap))) { blank(); say('ждёт пересчёта формул выше…'); return; } // формулы выше ещё считаются в фоне
+  E.budget(400); let slow = false;
+  try { MP.draw(cv, r, Object.assign({ dpr, onImg: () => paintPlot(cv, r, lab, extra) }, extra || {})); say(''); }
+  catch (e) {
+    if (e.timeout || E.budgetExpired()) slow = true;
+    else { blank(); say(e.message, true); }
+  } finally { E.budget(null); }
+  if (slow) { // точки считает фоновый поток; пока — картинка из Mathcad, если есть
+    blank(); if (r.snap) { try { MP.draw(cv, Object.assign({}, r, { showSnap: true }), { dpr }); } catch (e) {} }
+    say(r._seriesErr || 'график строится…'); requestSeries(r);
+  }
 }
 
 // ───────── редактор формулы ─────────
@@ -153,9 +252,9 @@ function livePreview(now) {
       if (preview) st.show = true;
       const b = r.before || { env: new E.Env(), given: null };
       if (b.given && st.type === 'expr') return; // ограничение блока Given — без вывода
-      const out = E.execStatement(st, b.env, { given: b.given });
+      E.budget(300); let out; try { out = E.execStatement(st, b.env, { given: b.given }); if (E.budgetExpired()) throw new E.TimeoutErr(); } finally { E.budget(null); }
       if (out.value !== undefined && out.value !== null) { live.classList.add('ok'); live.innerHTML = tex2html((preview ? '=' : '') + E.fmtValue(out.value, S.fmt)); }
-    } catch (e) { if (!/Пустое место|не закончена|Заполните/.test(e.message)) { live.classList.add('bad'); live.textContent = e.message; } }
+    } catch (e) { if (e.timeout) { live.textContent = 'посчитается после ✓'; return; } if (!/Пустое место|не закончена|Заполните/.test(e.message)) { live.classList.add('bad'); live.textContent = e.message; } }
   }, now ? 0 : 180);
 }
 function activate(r, tap) {
@@ -367,7 +466,7 @@ function openFull(r) {
   full.classList.add('on'); $('#fullTitle').textContent = MP.axisTitle(r, 'y') || 'График';
   const cv = $('#fullcv'); const fresh = cv.cloneNode(false); cv.replaceWith(fresh);
   const paint = () => { const b = fresh.getBoundingClientRect(); const dpr = sizeCanvas(fresh, Math.round(b.width), Math.round(b.height)); fresh.style.width = ''; fresh.style.height = '';
-    try { MP.draw(fresh, r, { dpr, w: Math.round(b.width), h: Math.round(b.height), trace: r._trace, onImg: paint }); } catch (e) { toast(e.message); } };
+    E.budget(400); try { MP.draw(fresh, r, { dpr, w: Math.round(b.width), h: Math.round(b.height), trace: r._trace, onImg: paint }); } catch (e) { if (e.timeout || E.budgetExpired()) { requestSeries(r); toast('График строится в фоне…'); } else toast(e.message); } finally { E.budget(null); } };
   requestAnimationFrame(paint);
   MP.attachGestures(fresh, r, kind => { paint(); if (kind === 'end' || kind === 'reset') save(); }, () => 'view');
   full._paint = paint; full._r = r;

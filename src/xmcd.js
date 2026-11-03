@@ -8,7 +8,7 @@ function local(el) { return (el.localName || el.nodeName || '').replace(/^ml:/, 
 function kids(el) { const out = []; for (let c = el.firstChild; c; c = c.nextSibling) if (c.nodeType === 1) out.push(c); return out; }
 function unsupported(what) { return { type: 'unsupported', what }; }
 
-let COLLIDE = new Set(), STYLES = {};
+let DEFINED = new Set(), COLLIDE = new Set(), STYLES = {};
 function styleOf(body) { const p = body.getElementsByTagName('p')[0]; let st = p && STYLES[p.getAttribute('style')]; const o = {}; for (let k = 0; st && k < 4; k++) { if (o.ff == null && st.ff) o.ff = st.ff; if (o.fs == null && st.fs) o.fs = st.fs; if (o.bold == null && st.bold) o.bold = true; st = STYLES[st.base]; } return o; }
 const MP2 = () => (typeof module !== 'undefined' && module.exports) ? require('./mcplot.js') : root.MatMcPlot;
 // подпись графика: изменился ли он после открытия (если нет — в .xmcd пишется исходный график Mathcad)
@@ -23,7 +23,7 @@ function idName(el) {
 function conv(el) {
   const t = local(el);
   switch (t) {
-    case 'id': { const nm = idName(el); const o = { type: 'id', name: nm }; if (!el.hasAttribute('subscript') && E.UNITS && (E.UNITS.has(nm) || (E.TEMP && E.TEMP[nm]))) o.u = true; return o; }
+    case 'id': { const nm = idName(el); const o = { type: 'id', name: nm }; if (!el.hasAttribute('subscript') && !DEFINED.has(nm) && E.UNITS && (E.UNITS.has(nm) || (E.TEMP && E.TEMP[nm]))) o.u = true; return o; }
     case 'real': { const v = parseFloat(el.textContent); return v < 0 ? { type: 'neg', e: { type: 'num', v: -v } } : { type: 'num', v }; }
     case 'imag': return { type: 'imag', v: parseFloat(el.textContent) };
     case 'complex': { const k = kids(el); let re = 0, im = 0; for (const c of k) { if (local(c) === 'real') re = parseFloat(c.textContent); if (local(c) === 'imag') im = parseFloat(c.textContent); } return { type: 'bin', op: '+', l: { type: 'num', v: re }, r: { type: 'imag', v: im } }; }
@@ -42,10 +42,27 @@ function conv(el) {
     }
     case 'function': { const k = kids(el); const name = idName(k[0]); const params = kids(k[1]).map(x => ({ type: 'id', name: idName(x) })); return { type: 'call', f: name, args: params }; }
     case 'apply': return convApply(el);
+    case 'program': return { type: 'prog', lines: kids(el).map(progLine) };
     case 'sequence': return unsupported('последовательность');
     case 'unitOverride': return null;
     case 'provenance': { const k = kids(el).filter(c => el.namespaceURI ? c.namespaceURI === el.namespaceURI : /^ml:/.test(c.nodeName)); return conv(k[k.length - 1]); }
     default: return unsupported(t);
+  }
+}
+// строки программы Mathcad: localDefine, ifThen, otherwise, for, while, break, continue, return, onError
+function progBody(el) { return el && local(el) === 'program' ? conv(el) : { type: 'prog', lines: [progLine(el)] }; }
+function progLine(el) {
+  const k = kids(el);
+  switch (local(el)) {
+    case 'localDefine': return { k: 'set', lhs: conv(k[0]), rhs: conv(k[1]) };
+    case 'ifThen': return { k: 'if', cond: conv(k[0]), body: progBody(k[1]) };
+    case 'otherwise': return { k: 'else', body: progBody(k[0]) };
+    case 'for': return { k: 'for', v: idName(k[0]), range: conv(k[1]), body: progBody(k[2]) };
+    case 'while': return { k: 'while', cond: conv(k[0]), body: progBody(k[1]) };
+    case 'break': return { k: 'break' }; case 'continue': return { k: 'continue' };
+    case 'return': return { k: 'return', e: conv(k[0]) };
+    case 'onError': case 'tryCatch': return { k: 'onerr', body: progBody(k[0]), alt: progBody(k[1]) };
+    default: return { k: 'expr', e: conv(el) };
   }
 }
 const BINOP = { plus: '+', minus: '-', mult: '·', div: '/', equal: '==', lessThan: '<', greaterThan: '>', lessOrEqual: '≤', greaterOrEqual: '≥', notEqual: '≠', and: '∧', or: '∨', xor: '⊕' };
@@ -125,14 +142,17 @@ function importXmcd(xml, DOMParserImpl) {
   const doc = new DP().parseFromString(xml, 'application/xml');
   { const ids = doc.getElementsByTagName('ml:id'); const plain = new Set(), empty = new Set();
     for (let i = 0; i < ids.length; i++) { const el = ids[i], nm = (el.textContent || '').trim(); if (!el.hasAttribute('subscript')) plain.add(nm); else if (el.getAttribute('subscript') === '') empty.add(nm); }
-    COLLIDE = new Set([...empty].filter(n => plain.has(n) && !(E.UNITS && E.UNITS.has(n)))); }
+    COLLIDE = new Set([...empty].filter(n => plain.has(n) && !(E.UNITS && E.UNITS.has(n))));
+    // имена, которые лист сам определяет (переменные, параметры функций, локальные в программах, циклы) — это не единицы
+    DEFINED = new Set(); const addId = el => { if (el && local(el) === 'id' && !el.hasAttribute('subscript')) DEFINED.add((el.textContent || '').trim()); };
+    for (const tag of ['ml:define', 'ml:globalDefine', 'ml:localDefine', 'ml:for']) { const ds = doc.getElementsByTagName(tag); for (let i = 0; i < ds.length; i++) { const f = kids(ds[i])[0]; if (!f) continue; if (local(f) === 'id') addId(f); else if (local(f) === 'function') { const fk = kids(f); (fk[1] ? kids(fk[1]) : []).forEach(addId); } else if (local(f) === 'matrix') kids(f).forEach(addId); } } }
   STYLES = {}; { const ts = doc.getElementsByTagName('textStyle'); for (let i = 0; i < ts.length; i++) { const ia = ts[i].getElementsByTagName('inlineAttr')[0]; const base = ts[i].getAttribute('base-style'); STYLES[ts[i].getAttribute('name')] = { ff: ia && ia.getAttribute('font-family'), fs: ia && parseFloat(ia.getAttribute('font-size')), bold: ia && ia.getAttribute('font-weight') === 'bold', base }; } }
   const regs = doc.getElementsByTagName('region'); const out = []; const warnings = new Set();
   const binItems = {}; // картинки: <binaryContent><item item-id="N">base64</item>
   const bcs = doc.getElementsByTagName('binaryContent');
   for (let b = 0; b < bcs.length; b++) { const its = bcs[b].getElementsByTagName('item'); for (let i = 0; i < its.length; i++) binItems[its[i].getAttribute('item-id')] = its[i].textContent; }
   for (let i = 0; i < regs.length; i++) {
-    const r = regs[i]; const x = parseFloat(r.getAttribute('left')) || 0, y = parseFloat(r.getAttribute('top')) || 0; const rh = parseFloat(r.getAttribute('height')); const ady = isFinite(rh) && rh > 1 ? rh / 2 : 0; // порядок счёта Mathcad — по середине региона по высоте
+    const r = regs[i]; const x = parseFloat(r.getAttribute('left')) || 0, y = parseFloat(r.getAttribute('top')) || 0; const rh = parseFloat(r.getAttribute('height')); const ay = parseFloat(r.getAttribute('align-y')); const ady = isFinite(ay) && ay >= y ? ay - y : (isFinite(rh) && rh > 1 ? rh / 2 : 0); // порядок счёта Mathcad — по базовой линии (align-y), при равенстве — слева направо // порядок счёта Mathcad — по середине региона по высоте
     const bgc = r.getAttribute('background-color'); const hl = r.getAttribute('show-highlight') === 'true' ? (/^#[0-9a-f]{6}$/i.test(bgc || '') ? bgc : '#ffff80') : null;
     const push = o => { if (hl) o.hl = hl; out.push(o); };
     const body = kids(r).filter(c => local(c) !== 'rendering')[0]; if (!body) continue;
@@ -171,17 +191,24 @@ function importXmcd(xml, DOMParserImpl) {
         let node;
         const symOf = el => { // «→»: выражение, ключевые слова, результат
           const ch = kids(el); const cmds = ch.filter(c => local(c) === 'command').map(c => (c.textContent || '').trim().split(/\s+/)[0]);
-          const res = ch.find(c => local(c) === 'symResult'); const ex = ch.find(c => !['command', 'symResult'].includes(local(c)));
-          const simple = cmds.every(c => /^(float|simplify|expand|factor|collect|complex|assume)$/.test(c));
+          const res = ch.find(c => local(c) === 'symResult'); let ex = ch.find(c => !['command', 'symResult'].includes(local(c)));
+          if (ex && local(ex) === 'symEval') { const inner = symOf(ex); cmds.push(...inner.cmds); ex = inner.ex; } // цепочка «→ explicit → float»
+          const simple = cmds.every(c => /^(simplify|expand|factor|collect|complex|assume|explicit|ALL|combine|normal)$/.test(c)); // не меняют значения — считаем численно
           return { ex, res: res && kids(res)[0], simple, cmds };
         };
-        if ((sk === 'define' || sk === 'globalDefine') && kids(st).some(c => local(c) === 'symEval')) {
+        const evSym = (sk === 'define' || sk === 'globalDefine') && kids(st).map(c => local(c) === 'eval' ? kids(c).find(x => local(x) === 'symEval') : null).find(Boolean); // x := выражение → explicit → подстановка = ответ
+        if (evSym) {
+          const k = kids(st); const ev = k.find(c => local(c) === 'eval'); const se = symOf(evSym);
+          node = { type: 'define', global: sk === 'globalDefine', lhs: conv(k[0]), rhs: conv(se.simple || !se.res ? se.ex : se.res), show: true };
+          const rr = kids(ev).find(c => local(c) === 'result'); if (rr) stored = storedOf(rr); const uo = unitOf(ev); if (uo) node.unit = uo;
+          if (!se.simple && se.res && se.cmds.some(c => c !== 'float' && c !== 'explicit' && c !== 'ALL')) warnings.add('символьные ключевые слова (' + se.cmds.join(', ') + ') заменены результатом, сохранённым в файле');
+        } else if ((sk === 'define' || sk === 'globalDefine') && kids(st).some(c => local(c) === 'symEval')) {
           const k = kids(st); const se = symOf(k.find(c => local(c) === 'symEval'));
           if (se.simple || !se.res) node = { type: 'define', global: sk === 'globalDefine', lhs: conv(k[0]), rhs: conv(se.ex), show: true, sym: true };
           else { node = { type: 'define', global: sk === 'globalDefine', lhs: conv(k[0]), rhs: conv(se.res) }; warnings.add('символьные ключевые слова (' + se.cmds.join(', ') + ') заменены результатом, сохранённым в файле'); }
         } else if (sk === 'symEval') {
           const se = symOf(st);
-          node = se.simple || !se.res ? { type: 'eval', expr: conv(se.ex), sym: true } : { type: 'eval', expr: conv(se.res) };
+          node = se.simple || !se.res ? { type: 'eval', expr: conv(se.ex), sym: true } : { type: 'eval', expr: conv(se.res), sym: true }; // символьный ответ с неизвестными — показывается как есть
         } else if (sk === 'define' || sk === 'globalDefine') {
           const k = kids(st).filter(c => !['result', 'unitOverride'].includes(local(c)));
           const rEl = k[1]; const inl = rEl && local(rEl) === 'eval'; // c := … = (вывод внутри определения)
@@ -193,6 +220,7 @@ function importXmcd(xml, DOMParserImpl) {
           const k = kids(st).filter(c => !['result', 'unitOverride'].includes(local(c)));
           const inner = k[0];
           if (inner && local(inner) === 'define') { node = { type: 'define', lhs: conv(kids(inner)[0]), rhs: conv(kids(inner)[1]), show: true }; }
+          else if (inner && local(inner) === 'symEval') { const se = symOf(inner); node = { type: 'eval', expr: conv(se.simple || !se.res ? se.ex : se.res) }; }
           else node = { type: 'eval', expr: conv(inner) };
           { const uo = unitOf(st); if (uo) node.unit = uo; }
         } else node = { type: 'expr', expr: conv(st) };
@@ -252,6 +280,23 @@ function mlNum(v) {
 const OPS = { '+': 'plus', '-': 'minus', '·': 'mult style="default"', '/': 'div', '==': 'equal', '<': 'lessThan', '>': 'greaterThan', '≤': 'lessOrEqual', '≥': 'greaterOrEqual', '≠': 'notEqual', '∧': 'and', '∨': 'or', '⊕': 'xor', '±': 'plus' };
 const SOLVER_HEADS = { Find: 'Find', find: 'Find', Minimize: 'Minimize', minimize: 'Minimize', Maximize: 'Maximize', maximize: 'Maximize', Minerr: 'Minerr', minerr: 'Minerr', Odesolve: 'Odesolve', odesolve: 'Odesolve', polyroots: 'polyroots' };
 class Unsupported extends Error {}
+// программа Mathcad → ml:program (localDefine, ifThen, otherwise, for, while, break, continue, return, onError)
+function mlProg(n) { return '<ml:program>' + n.lines.map(mlProgLine).join('') + '</ml:program>'; }
+function mlProgBody(b) { return b.lines.length === 1 ? mlProgLine(b.lines[0]) : mlProg(b); }
+function mlProgLine(l) {
+  switch (l.k) {
+    case 'expr': return ml(l.e);
+    case 'set': return '<ml:localDefine>' + ml(l.lhs) + ml(l.rhs) + '</ml:localDefine>';
+    case 'if': return '<ml:ifThen>' + ml(l.cond) + mlProgBody(l.body) + '</ml:ifThen>';
+    case 'else': return '<ml:otherwise>' + mlProgBody(l.body) + '</ml:otherwise>';
+    case 'for': return '<ml:for>' + mlId(l.v) + ml(l.range) + mlProg(l.body) + '</ml:for>';
+    case 'while': return '<ml:while>' + ml(l.cond) + mlProg(l.body) + '</ml:while>';
+    case 'return': return '<ml:return>' + ml(l.e) + '</ml:return>';
+    case 'break': return '<ml:break/>'; case 'continue': return '<ml:continue/>';
+    case 'onerr': return '<ml:onError>' + mlProgBody(l.body) + mlProgBody(l.alt) + '</ml:onError>';
+  }
+  throw new Unsupported('строка программы');
+}
 function ml(n) {
   const ap = (op, ...a) => '<ml:apply><ml:' + op + '/>' + a.join('') + '</ml:apply>';
   const lam = (v, body) => '<ml:lambda><ml:boundVars>' + mlId(v) + '</ml:boundVars>' + ml(body) + '</ml:lambda>';
@@ -289,6 +334,7 @@ function ml(n) {
     case 'int': if (!n.lo) throw new Unsupported('неопределённый интеграл'); return '<ml:apply><ml:integral auto-algorithm="true" algorithm="adaptive"/>' + lam(n.v, n.body) + '<ml:bounds>' + ml(n.lo) + ml(n.hi) + '</ml:bounds></ml:apply>';
     case 'deriv': return '<ml:apply><ml:derivative/>' + lam(n.v, n.e) + (n.order > 1 ? '<ml:degree>' + mlNum(n.order) + '</ml:degree>' : '') + '</ml:apply>';
     case 'sum': case 'prod': return '<ml:apply><ml:' + (n.type === 'sum' ? 'summation' : 'product') + '/>' + lam(n.v, n.body) + (n.from ? '<ml:bounds>' + ml(n.from) + ml(n.to) + '</ml:bounds>' : '') + '</ml:apply>';
+    case 'prog': return mlProg(n);
   }
   throw new Unsupported(n.type);
 }

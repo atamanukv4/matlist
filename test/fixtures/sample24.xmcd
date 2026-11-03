@@ -1,0 +1,155 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<?validation-md5-digest 57bf2b0c30e127085e60eab54eb356a3?>
+<worksheet version="3.0.3" xmlns="http://schemas.mathsoft.com/worksheet30" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:ws="http://schemas.mathsoft.com/worksheet30" xmlns:ml="http://schemas.mathsoft.com/math30" xmlns:u="http://schemas.mathsoft.com/units10" xmlns:p="http://schemas.mathsoft.com/provenance10">
+	<pointReleaseData/>
+	<metadata>
+		<generator>Mathcad Professional 14.1</generator>
+		<userData>
+			<title>Учебный лист</title>
+			<description/>
+			<author>Матлист</author>
+			<company/>
+			<keywords/>
+			<revisedBy>Матлист</revisedBy>
+		</userData>
+		<identityInfo>
+			<revision>1</revision>
+			<documentID>757DD9B4-395A-4D68-42BB-0302954B1A88</documentID>
+			<versionID>97826282-F57F-4C5A-E2B3-E263404B52FC</versionID>
+			<parentVersionID>00000000-0000-0000-0000-000000000000</parentVersionID>
+			<branchID>00000000-0000-0000-0000-000000000000</branchID>
+		</identityInfo>
+	</metadata>
+	<settings>
+		<presentation>
+			<textRendering>
+				<textStyles>
+					<textStyle name="Обычный">
+						<blockAttr margin-left="0" margin-right="0" text-indent="0" text-align="left" list-style-type="none" tabs="inherit"/>
+						<inlineAttr font-family="Arial" font-charset="0" font-size="10" font-weight="normal" font-style="normal" underline="false" line-through="false" vertical-align="baseline"/>
+					</textStyle>
+				</textStyles>
+			</textRendering>
+			<mathRendering equation-color="#000">
+				<operators multiplication="dot" derivative="derivative" literal-subscript="small" definition="colon-equal" global-definition="triple-equal" local-definition="left-arrow" equality="bold-equal" symbolic-evaluation="right-arrow"/>
+				<mathStyles>
+					<mathStyle name="Переменные" font-family="Times New Roman" font-charset="0" font-size="10" font-weight="normal" font-style="normal" underline="false"/>
+					<mathStyle name="Константы" font-family="Times New Roman" font-charset="0" font-size="10" font-weight="normal" font-style="normal" underline="false"/>
+					<mathStyle name="Пользовательский 1" font-family="Arial" font-charset="0" font-size="10" font-weight="normal" font-style="normal" underline="false"/>
+					<mathStyle name="Пользовательский 2" font-family="Courier New" font-charset="0" font-size="10" font-weight="normal" font-style="normal" underline="false"/>
+					<mathStyle name="Пользовательский 3" font-family="Arial" font-charset="0" font-size="10" font-weight="normal" font-style="normal" underline="false"/>
+					<mathStyle name="Пользовательский 4" font-family="Times New Roman" font-charset="0" font-size="10" font-weight="normal" font-style="normal" underline="false"/>
+					<mathStyle name="Пользовательский 5" font-family="Times New Roman" font-charset="0" font-size="10" font-weight="normal" font-style="normal" underline="false"/>
+					<mathStyle name="Пользовательский 6" font-family="Arial" font-charset="0" font-size="10" font-weight="normal" font-style="normal" underline="false"/>
+					<mathStyle name="Пользовательский 7" font-family="Times New Roman" font-charset="0" font-size="10" font-weight="normal" font-style="normal" underline="false"/>
+					<mathStyle name="Шрифт математического текста" font-family="Times New Roman" font-charset="0" font-size="14" font-weight="normal" font-style="normal" underline="false"/>
+				</mathStyles>
+				<dimensionNames mass="масса" length="длина" time="время" current="сила тока" thermodynamic-temperature="температура" luminous-intensity="сила света" amount-of-substance="количество вещества" display="false"/>
+				<symbolics derivation-steps-style="vertical-insert" show-comments="false" evaluate-in-place="false"/>
+				<results numeric-only="true">
+					<general precision="4" show-trailing-zeros="false" radix="dec" complex-threshold="10" zero-threshold="15" imaginary-value="i" exponential-threshold="5"/>
+					<matrix display-style="auto" expand-nested-arrays="false"/>
+					<unit format-units="false" simplify-units="false" fractional-unit-exponent="false"/>
+				</results>
+			</mathRendering>
+			<pageModel show-page-frame="false" show-header-frame="false" show-footer-frame="false" header-footer-start-page="1" paper-code="9" orientation="portrait" print-single-page-width="false" page-width="595.3" page-height="841.9">
+				<margins left="56.7" right="42.5" top="56.7" bottom="56.7"/>
+				<header use-full-page-width="false"/>
+				<footer use-full-page-width="false"/>
+			</pageModel>
+			<colorModel background-color="#fff" default-highlight-color="#ffff80"/>
+			<language math="ru" UI="ru"/>
+		</presentation>
+		<calculation>
+			<builtInVariables array-origin="1" convergence-tolerance="0.001" constraint-tolerance="0.001" random-seed="1" prn-precision="4" prn-col-width="8"/>
+			<calculationBehavior automatic-recalculation="true" matrix-strict-singularity-check="false" optimize-expressions="false" exact-boolean="true" strings-use-origin="false" zero-over-zero="error">
+				<compatibility multiple-assignment="MC12" local-assignment="MC11"/>
+			</calculationBehavior>
+			<units>
+				<currentUnitSystem name="si" customized="false"/>
+			</units>
+		</calculation>
+		<editor view-annotations="false" view-regions="false">
+			<ruler is-visible="false" ruler-unit="in"/>
+			<grid granularity-x="1" granularity-y="1"/>
+		</editor>
+		<fileFormat image-type="image/png" image-quality="75" save-numeric-results="true" exclude-large-results="true" save-text-images="false" screen-dpi="96"/>
+		<miscellaneous>
+			<handbook handbook-region-tag-ub="0" can-delete-original-handbook-regions="true" can-delete-user-regions="true" can-print="true" can-copy="true" can-save="true" file-permission-mask="0"/>
+		</miscellaneous>
+	</settings>
+	<regions>
+		<region region-id="1" left="12.00" top="7.50" width="249.00" height="13.50" align-x="12.00" align-y="15.60" show-border="false" show-highlight="false" is-protected="true" z-order="0" background-color="inherit" tag="">
+			<text use-page-width="false" push-down="false" lock-width="false"><p style="Обычный" margin-left="inherit" margin-right="inherit" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit">Учебный лист: расход пара через сечение</p></text>
+		</region>
+		<region region-id="2" left="12.00" top="30.00" width="105.00" height="18.00" align-x="12.00" align-y="40.80" show-border="false" show-highlight="false" is-protected="true" z-order="0" background-color="inherit" tag="">
+			<math optimize="false" disable-calc="false"><ml:define><ml:id xml:space="preserve">D</ml:id><ml:real>120</ml:real></ml:define></math>
+		</region>
+		<region region-id="3" left="12.00" top="51.00" width="105.00" height="18.00" align-x="12.00" align-y="61.80" show-border="false" show-highlight="false" is-protected="true" z-order="0" background-color="inherit" tag="">
+			<math optimize="false" disable-calc="false"><ml:define><ml:id xml:space="preserve">v</ml:id><ml:real>0.0213</ml:real></ml:define></math>
+		</region>
+		<region region-id="4" left="12.00" top="72.00" width="105.00" height="18.00" align-x="12.00" align-y="82.80" show-border="false" show-highlight="false" is-protected="true" z-order="0" background-color="inherit" tag="">
+			<math optimize="false" disable-calc="false"><ml:define><ml:id xml:space="preserve">w</ml:id><ml:real>35</ml:real></ml:define></math>
+		</region>
+		<region region-id="5" left="12.00" top="93.00" width="105.00" height="18.00" align-x="12.00" align-y="103.80" show-border="false" show-highlight="false" is-protected="true" z-order="0" background-color="inherit" tag="">
+			<math optimize="false" disable-calc="false"><ml:define><ml:id xml:space="preserve">n</ml:id><ml:real>4</ml:real></ml:define></math>
+		</region>
+		<region region-id="6" left="12.00" top="114.00" width="105.00" height="18.00" align-x="12.00" align-y="124.80" show-border="false" show-highlight="false" is-protected="true" z-order="0" background-color="inherit" tag="">
+			<math optimize="false" disable-calc="false"><ml:define><ml:id xml:space="preserve">k</ml:id><ml:real>1.15</ml:real></ml:define></math>
+		</region>
+		<region region-id="7" left="12.00" top="135.00" width="105.00" height="18.00" align-x="12.00" align-y="145.80" show-border="false" show-highlight="false" is-protected="true" z-order="0" background-color="inherit" tag="">
+			<math optimize="false" disable-calc="false"><ml:define><ml:id xml:space="preserve">p</ml:id><ml:real>13.8</ml:real></ml:define></math>
+		</region>
+		<region region-id="8" left="12.00" top="156.00" width="105.00" height="18.00" align-x="12.00" align-y="166.80" show-border="false" show-highlight="false" is-protected="true" z-order="0" background-color="inherit" tag="">
+			<math optimize="false" disable-calc="false"><ml:define><ml:id xml:space="preserve">t</ml:id><ml:real>545</ml:real></ml:define></math>
+		</region>
+		<region region-id="9" left="12.00" top="177.00" width="105.00" height="18.00" align-x="12.00" align-y="187.80" show-border="false" show-highlight="false" is-protected="true" z-order="0" background-color="inherit" tag="">
+			<math optimize="false" disable-calc="false"><ml:define><ml:id xml:space="preserve">G</ml:id><ml:apply><ml:div/><ml:id xml:space="preserve">D</ml:id><ml:real>3.6</ml:real></ml:apply></ml:define></math>
+		</region>
+		<region region-id="10" left="12.00" top="198.00" width="105.00" height="18.00" align-x="12.00" align-y="208.80" show-border="false" show-highlight="false" is-protected="true" z-order="0" background-color="inherit" tag="">
+			<math optimize="false" disable-calc="false"><ml:define><ml:id xml:space="preserve" subscript="">F</ml:id><ml:apply><ml:div/><ml:apply><ml:mult style="default"/><ml:id xml:space="preserve">G</ml:id><ml:id xml:space="preserve">v</ml:id></ml:apply><ml:id xml:space="preserve">w</ml:id></ml:apply></ml:define></math>
+		</region>
+		<region region-id="11" left="12.00" top="219.00" width="105.00" height="18.00" align-x="12.00" align-y="229.80" show-border="false" show-highlight="false" is-protected="true" z-order="0" background-color="inherit" tag="">
+			<math optimize="false" disable-calc="false"><ml:define><ml:id xml:space="preserve">d</ml:id><ml:apply><ml:sqrt/><ml:apply><ml:div/><ml:apply><ml:mult style="default"/><ml:real>4</ml:real><ml:id xml:space="preserve" subscript="">F</ml:id></ml:apply><ml:apply><ml:mult style="default"/><ml:id xml:space="preserve">n</ml:id><ml:id xml:space="preserve">π</ml:id></ml:apply></ml:apply></ml:apply></ml:define></math>
+		</region>
+		<region region-id="12" left="12.00" top="240.00" width="105.00" height="18.00" align-x="12.00" align-y="250.80" show-border="false" show-highlight="false" is-protected="true" z-order="0" background-color="inherit" tag="">
+			<math optimize="false" disable-calc="false"><ml:define><ml:id xml:space="preserve">i</ml:id><ml:range><ml:real>1</ml:real><ml:id xml:space="preserve">n</ml:id></ml:range></ml:define></math>
+		</region>
+		<region region-id="13" left="12.00" top="261.00" width="105.00" height="18.00" align-x="12.00" align-y="271.80" show-border="false" show-highlight="false" is-protected="true" z-order="0" background-color="inherit" tag="">
+			<math optimize="false" disable-calc="false"><ml:define><ml:apply><ml:indexer/><ml:id xml:space="preserve">x</ml:id><ml:id xml:space="preserve">i</ml:id></ml:apply><ml:apply><ml:mult style="default"/><ml:id xml:space="preserve">i</ml:id><ml:id xml:space="preserve">d</ml:id></ml:apply></ml:define></math>
+		</region>
+		<region region-id="14" left="12.00" top="282.00" width="105.00" height="18.00" align-x="12.00" align-y="292.80" show-border="false" show-highlight="false" is-protected="true" z-order="0" background-color="inherit" tag="">
+			<math optimize="false" disable-calc="false"><ml:define><ml:id xml:space="preserve" subscript="">S</ml:id><ml:apply><ml:summation/><ml:lambda><ml:boundVars><ml:id xml:space="preserve">j</ml:id></ml:boundVars><ml:apply><ml:indexer/><ml:id xml:space="preserve">x</ml:id><ml:id xml:space="preserve">j</ml:id></ml:apply></ml:lambda><ml:bounds><ml:real>1</ml:real><ml:id xml:space="preserve">n</ml:id></ml:bounds></ml:apply></ml:define></math>
+		</region>
+		<region region-id="15" left="12.00" top="303.00" width="105.00" height="18.00" align-x="12.00" align-y="313.80" show-border="false" show-highlight="false" is-protected="true" z-order="0" background-color="inherit" tag="">
+			<math optimize="false" disable-calc="false"><ml:define><ml:function><ml:id xml:space="preserve">f</ml:id><ml:boundVars><ml:id xml:space="preserve">z</ml:id></ml:boundVars></ml:function><ml:apply><ml:minus/><ml:apply><ml:pow/><ml:id xml:space="preserve">z</ml:id><ml:real>2</ml:real></ml:apply><ml:real>2</ml:real></ml:apply></ml:define></math>
+		</region>
+		<region region-id="16" left="12.00" top="324.00" width="105.00" height="18.00" align-x="12.00" align-y="334.80" show-border="false" show-highlight="false" is-protected="true" z-order="0" background-color="inherit" tag="">
+			<math optimize="false" disable-calc="false"><ml:define><ml:id xml:space="preserve">z</ml:id><ml:real>1</ml:real></ml:define></math>
+		</region>
+		<region region-id="17" left="12.00" top="345.00" width="105.00" height="18.00" align-x="12.00" align-y="355.80" show-border="false" show-highlight="false" is-protected="true" z-order="0" background-color="inherit" tag="">
+			<math optimize="false" disable-calc="false"><ml:define><ml:id xml:space="preserve">r</ml:id><ml:apply><ml:id xml:space="preserve">root</ml:id><ml:sequence><ml:apply><ml:id xml:space="preserve">f</ml:id><ml:id xml:space="preserve">z</ml:id></ml:apply><ml:id xml:space="preserve">z</ml:id></ml:sequence></ml:apply></ml:define></math>
+		</region>
+		<region region-id="18" left="12.00" top="366.00" width="105.00" height="18.00" align-x="12.00" align-y="376.80" show-border="false" show-highlight="false" is-protected="true" z-order="0" background-color="inherit" tag="">
+			<math optimize="false" disable-calc="false"><ml:define><ml:id xml:space="preserve" subscript="">A</ml:id><ml:matrix rows="2" cols="2"><ml:real>2</ml:real><ml:real>1</ml:real><ml:real>1</ml:real><ml:real>3</ml:real></ml:matrix></ml:define></math>
+		</region>
+		<region region-id="19" left="12.00" top="387.00" width="105.00" height="18.00" align-x="12.00" align-y="397.80" show-border="false" show-highlight="false" is-protected="true" z-order="0" background-color="inherit" tag="">
+			<math optimize="false" disable-calc="false"><ml:define><ml:id xml:space="preserve">b</ml:id><ml:matrix rows="2" cols="1"><ml:real>3</ml:real><ml:real>5</ml:real></ml:matrix></ml:define></math>
+		</region>
+		<region region-id="20" left="12.00" top="408.00" width="105.00" height="18.00" align-x="12.00" align-y="418.80" show-border="false" show-highlight="false" is-protected="true" z-order="0" background-color="inherit" tag="">
+			<math optimize="false" disable-calc="false"><ml:define><ml:id xml:space="preserve">q</ml:id><ml:apply><ml:id xml:space="preserve">lsolve</ml:id><ml:sequence><ml:id xml:space="preserve" subscript="">A</ml:id><ml:id xml:space="preserve">b</ml:id></ml:sequence></ml:apply></ml:define></math>
+		</region>
+		<region region-id="21" left="12.00" top="429.00" width="75.00" height="13.50" align-x="12.00" align-y="437.10" show-border="false" show-highlight="false" is-protected="true" z-order="0" background-color="inherit" tag="">
+			<text use-page-width="false" push-down="false" lock-width="false"><p style="Обычный" margin-left="inherit" margin-right="inherit" text-indent="inherit" text-align="left" list-style-type="inherit" tabs="inherit">Результаты</p></text>
+		</region>
+		<region region-id="22" left="12.00" top="450.00" width="105.00" height="18.00" align-x="12.00" align-y="460.80" show-border="false" show-highlight="false" is-protected="true" z-order="0" background-color="inherit" tag="">
+			<math optimize="false" disable-calc="false"><ml:eval placeholderMultiplicationStyle="default" resultMultiplicationStyle="default"><ml:id xml:space="preserve">d</ml:id></ml:eval></math>
+		</region>
+		<region region-id="23" left="12.00" top="471.00" width="105.00" height="18.00" align-x="12.00" align-y="481.80" show-border="false" show-highlight="false" is-protected="true" z-order="0" background-color="inherit" tag="">
+			<math optimize="false" disable-calc="false"><ml:eval placeholderMultiplicationStyle="default" resultMultiplicationStyle="default"><ml:id xml:space="preserve">r</ml:id></ml:eval></math>
+		</region>
+		<region region-id="24" left="12.00" top="492.00" width="105.00" height="18.00" align-x="12.00" align-y="502.80" show-border="false" show-highlight="false" is-protected="true" z-order="0" background-color="inherit" tag="">
+			<math optimize="false" disable-calc="false"><ml:eval placeholderMultiplicationStyle="default" resultMultiplicationStyle="default"><ml:id xml:space="preserve" subscript="">S</ml:id></ml:eval></math>
+		</region>
+	</regions>
+</worksheet>

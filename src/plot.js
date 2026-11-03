@@ -22,7 +22,23 @@ function xDomain(r) {
   if (r.view) return [r.view.x0, r.view.x1];
   return [isFinite(r.xmin) ? r.xmin : -10, isFinite(r.xmax) ? r.xmax : 10];
 }
+// точки графика кэшируются в r._series: их может прислать фоновый поток (тяжёлые функции) или посчитать интерфейс
+const baseKey = r => JSON.stringify([r.ys, r.xs, !!r.logx]);
+const domKey = r => JSON.stringify(xDomain(r));
+function seriesKey(r) { return baseKey(r) + domKey(r); }
+function cachedSeries(r) { const c = r._series; return c && c.k0 === baseKey(r) && (!c.quick || c.dom === domKey(r)) ? c.data : null; }
+function setSeries(r, key, data) { // данные из фонового потока: key — для какого вида они посчитаны
+  const quick = data.some(s => s.quick); const pts = data.map(s => { const p = s.pts; if (s.quick) p.quick = true; return p; });
+  r._series = { k0: baseKey(r), dom: key.slice(baseKey(r).length), quick, data: pts };
+}
 function seriesOf(r) {
+  const hit = cachedSeries(r); if (hit) return hit;
+  const data = seriesOf0(r);
+  if (E.budgetExpired && E.budgetExpired()) throw new E.TimeoutErr(); // не успели — точки неполные, не кэшировать
+  r._series = { k0: baseKey(r), dom: domKey(r), quick: data.some(s => s.quick), data };
+  return data;
+}
+function seriesOf0(r) {
   if (!r.ys || !r.xs) throw new Error('Заполните оси графика');
   const env = r.env || new E.Env(); const ys = E.parseList(r.ys), xs = E.parseList(r.xs);
   if (!ys.length || !xs.length) throw new Error('Заполните оси графика');
@@ -124,7 +140,7 @@ function draw(cv, r, opts) {
   opts = opts || {}; const dpr = opts.dpr || 1, W = opts.w || r.w, H = opts.h || r.h;
   if (r.snap && (r.snapOnly || r.showSnap)) return drawSnap(cv, r, opts, r.snapOnly ? 'картинка из Mathcad' : null);
   let series;
-  try { series = seriesOf(r); } catch (e) { if (r.snap) return drawSnap(cv, r, opts, 'из файла: ' + e.message); throw e; }
+  try { series = seriesOf(r); } catch (e) { if (e.timeout) throw e; if (r.snap) return drawSnap(cv, r, opts, 'из файла: ' + e.message); throw e; }
   if (r.snap && series.every(s => !s.some(([x, y]) => isFinite(x) && isFinite(y)))) return drawSnap(cv, r, opts, 'из файла: нет точек');
   const g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0);
   const xt = axisTitle(r, 'x'), yt = axisTitle(r, 'y');
@@ -299,5 +315,5 @@ function attachGestures(cv, r, onChange, mode) {
   cv.style.touchAction = 'none';
 }
 
-root.MatPlot = { draw, seriesOf, attachGestures, texPlain, defaultNames, axisTitle, COLORS, getImg, splitTop };
+root.MatPlot = { draw, seriesOf, seriesKey, setSeries, cachedSeries, attachGestures, texPlain, defaultNames, axisTitle, COLORS, getImg, splitTop };
 })(typeof self !== 'undefined' ? self : this);

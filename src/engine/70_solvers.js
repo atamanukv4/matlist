@@ -21,7 +21,7 @@ function splitGiven(given, fname) {
     const e = g.type === 'paren' ? g.e : g;
     if (e.type === 'bin' && e.op === '==') eqs.push(e);
     else if (e.type === 'bin' && ['<', '>', '≤', '≥'].includes(e.op)) ineqs.push(e);
-    else throw err('В блоке Given допустимы только уравнения (логическое =) и неравенства');
+    // прочие выражения внутри Given (подписи, промежуточные выводы) Mathcad в решение не берёт
   }
   return { eqs, ineqs };
 }

@@ -1,3 +1,11 @@
+// Лимит времени на вычисление (интерфейс не должен зависать): budget(мс) — включить, budget(null) — снять.
+// tick() вызывается в тяжёлых циклах; по истечении бросает TimeoutErr, и дальше каждый tick() бросает сразу,
+// поэтому даже циклы, которые глотают ошибки, быстро завершаются.
+class TimeoutErr extends Error { constructor() { super('Вычисление прервано: слишком долго'); this.timeout = true; } }
+const BUDGET = { until: 0, dead: false, n: 0 };
+function budget(ms) { BUDGET.until = ms == null ? 0 : Date.now() + ms; BUDGET.dead = false; BUDGET.n = 0; }
+const budgetExpired = () => BUDGET.dead || (BUDGET.until > 0 && Date.now() > BUDGET.until);
+function tick() { if (!BUDGET.until) return; if (BUDGET.dead) throw new TimeoutErr(); if ((++BUDGET.n & 127) === 0 && Date.now() > BUDGET.until) { BUDGET.dead = true; throw new TimeoutErr(); } }
 function brent(f, a, b, tol) {
   let fa = f(a), fb = f(b);
   if (fa === 0) return a; if (fb === 0) return b;
@@ -32,36 +40,57 @@ function secantRoot(f, x0) {
   if (Math.abs(f1) < 1e-6) return x1;
   throw err('root не сошёлся — задайте другое начальное приближение или интервал');
 }
-function integrate(f, a, b) { // адаптивная Гаусс–Кронрод 7-15
-  const xk = [0.991455371120813, 0.949107912342759, 0.864864423359769, 0.741531185599394, 0.586087235467691, 0.405845151377397, 0.207784955007898, 0];
-  const wk = [0.022935322010529, 0.063092092629979, 0.104790010322250, 0.140653259715525, 0.169004726639267, 0.190350578064785, 0.204432940075298, 0.209482141084728];
-  const wg = [0.129484966168870, 0.279705391489277, 0.381830050505119, 0.417959183673469];
-  function gk(a, b) {
-    const c = (a + b) / 2, h = (b - a) / 2; let k = wk[7] * f(c), g = wg[3] * f(c);
-    for (let i = 0; i < 7; i++) { const dx = h * xk[i]; const s = f(c - dx) + f(c + dx); k += wk[i] * s; if (i % 2 === 1) g += wg[(i - 1) / 2] * s; }
-    return [k * h, Math.abs((k - g) * h)];
+// ∫ f от a до b. Глобально-адаптивная квадратура Гаусса–Кронрода 7-15 (делится отрезок с наибольшей ошибкой)
+// с лимитом работы, как в Mathcad: точность — относительная TOL_INT, при исчерпании лимита — лучшая оценка.
+// Бесконечный предел: участки растущей длины [a, a+L], [a+L, a+3L]…, пока вклад не станет пренебрежимым.
+let INT_RTOL = 1e-7, INT_DEPTH = 0; const INT_NESTED_RTOL = 1e-4, INT_STACK = [];
+const intRtol = () => { const fr = INT_STACK[INT_STACK.length - 1]; return fr && fr.nested ? Math.max(INT_RTOL, INT_NESTED_RTOL) : INT_RTOL; }; const INT_MAXSEG = 300, INT_INF = 1e300; // вложенные интегралы считаются грубее (как TOL в Mathcad)
+const GK_X = [0.991455371120813, 0.949107912342759, 0.864864423359769, 0.741531185599394, 0.586087235467691, 0.405845151377397, 0.207784955007898, 0];
+const GK_WK = [0.022935322010529, 0.063092092629979, 0.104790010322250, 0.140653259715525, 0.169004726639267, 0.190350578064785, 0.204432940075298, 0.209482141084728];
+const GK_WG = [0.129484966168870, 0.279705391489277, 0.381830050505119, 0.417959183673469];
+function gk15(f, a, b) {
+  tick(); const c = (a + b) / 2, h = (b - a) / 2; const fc = f(c); let k = GK_WK[7] * fc, g = GK_WG[3] * fc, ka = GK_WK[7] * Math.abs(fc);
+  for (let i = 0; i < 7; i++) { const dx = h * GK_X[i]; const f1 = f(c - dx), f2 = f(c + dx); const s = f1 + f2; k += GK_WK[i] * s; ka += GK_WK[i] * (Math.abs(f1) + Math.abs(f2)); if (i % 2 === 1) g += GK_WG[(i - 1) / 2] * s; }
+  if (!isFinite(k)) throw err('Подынтегральная функция не определена на отрезке (деление на ноль?)');
+  return { a, b, v: k * h, e: Math.abs((k - g) * h), va: ka * Math.abs(h) };
+}
+// точность: относительно |∫f| и (для знакопеременных, где ∫f ≈ 0) относительно ∫|f|
+function integrateFinite(f, a, b, maxSeg, absTol) {
+  const segs = [gk15(f, a, b)]; let tot = segs[0].v, er = segs[0].e, ab = segs[0].va;
+  while (segs.length < maxSeg && er > Math.max(absTol || 0, intRtol() * Math.abs(tot), intRtol() * 1e-3 * ab, 1e-300)) {
+    let w = 0; for (let i = 1; i < segs.length; i++) if (segs[i].e > segs[w].e) w = i;
+    const s0 = segs[w], m = (s0.a + s0.b) / 2; if (m === s0.a || m === s0.b) break;
+    const L = gk15(f, s0.a, m), R = gk15(f, m, s0.b);
+    segs[w] = L; segs.push(R); tot += L.v + R.v - s0.v; er += L.e + R.e - s0.e; ab += L.va + R.va - s0.va;
   }
-  let total = 0, depth = 0;
-  function rec(a, b, whole, tol, lvl) {
-    const m = (a + b) / 2; const [l, el] = gk(a, m), [r, er] = gk(m, b);
-    if (lvl > 40 || el + er <= tol || Math.abs(b - a) < 1e-14) return l + r;
-    return rec(a, m, l, tol / 2, lvl + 1) + rec(m, b, r, tol / 2, lvl + 1);
+  return { v: tot, e: er, va: ab };
+}
+function integrateInf(f, a, dir) { // ∫ от a до ±∞ (знак: dir = −1 даёт ∫ от a до −∞)
+  let sum = 0, asum = 0, L = Math.max(1, Math.abs(a)), x = a, small = 0;
+  for (let k = 0; k < 80; k++) {
+    const y = x + dir * L; const scale = Math.max(Math.abs(sum), 1e-3 * asum);
+    const r = integrateFinite(f, Math.min(x, y), Math.max(x, y), 120, intRtol() * 0.1 * scale); const part = dir * r.v; // хвост: точность относительно всей суммы
+    sum += part; asum += r.va;
+    if (Math.abs(part) <= intRtol() * 0.1 * Math.max(Math.abs(sum), 1e-3 * asum) && r.va <= intRtol() * asum || r.va < 1e-300) { if (++small >= 2) break; } else small = 0;
+    x = y; L *= 2; if (Math.abs(x) > 1e150) break;
   }
+  return sum;
+}
+function integrate(f, a, b) {
+  // вложенный интеграл (∫∫, переходная характеристика через ВЧХ): и внутренний, и внешний — с точностью 1e-4,
+  // иначе внешний пытается добиться точности, которой нет у внутреннего, и считает бесконечно долго
+  const save = INT_RTOL; INT_DEPTH++; if (INT_DEPTH > 1) { INT_RTOL = Math.max(save, INT_NESTED_RTOL); INT_STACK.forEach(fr => { fr.nested = true; }); }
+  const frame = { nested: false }; INT_STACK.push(frame);
+  try { return integrate0(f, a, b); } finally { INT_STACK.pop(); INT_DEPTH--; INT_RTOL = save; }
+}
+function integrate0(f, a, b) {
   if (a === b) return 0;
-  // бесконечные пределы — замена переменной
-  const INF = 1e300;
-  if (Math.abs(a) >= INF || Math.abs(b) >= INF) {
-    const g = f; const sgn = a > b ? -1 : 1; let lo = Math.min(a, b), hi = Math.max(a, b);
-    const tf = t => { const x = t / (1 - t * t); const dx = (1 + t * t) / ((1 - t * t) ** 2); return g(x) * dx; };
-    const tlo = lo <= -INF ? -1 : (Math.abs(lo) < 1e-300 ? 0 : (-1 + Math.sqrt(1 + 4 * lo * lo)) / (2 * lo));
-    const thi = hi >= INF ? 1 : (Math.abs(hi) < 1e-300 ? 0 : (-1 + Math.sqrt(1 + 4 * hi * hi)) / (2 * hi));
-    f = tf; const eps = 1e-9;
-    const [w] = gk(tlo + eps, thi - eps);
-    return sgn * rec(tlo + eps, thi - eps, w, 1e-10, 0);
-  }
-  const [w, e] = gk(a, b);
-  total = rec(a, b, w, Math.max(1e-11, Math.abs(w) * 1e-12), 0);
-  return total;
+  if (a > b) return -integrate0(f, b, a);
+  const ia = a <= -INT_INF, ib = b >= INT_INF;
+  if (ia && ib) return integrateInf(f, 0, 1) - integrateInf(f, 0, -1);
+  if (ib) return integrateInf(f, a, 1);
+  if (ia) return -integrateInf(f, b, -1);
+  return integrateFinite(f, a, b, INT_MAXSEG).v;
 }
 function derivative(f, x, order) { // центральные разности с экстраполяцией Ричардсона
   if (order === 0) return f(x);

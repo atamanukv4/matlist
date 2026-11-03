@@ -38,6 +38,7 @@ function evalNode(n, env, ctx) {
     case 'neg': return mapNeg(evalNode(n.e, env, ctx));
     case 'un': return toNum(evalNode(n.e, env, ctx)) === 0 ? 1 : 0;
     case 'bin': return evalBin(n, env, ctx);
+    case 'prog': return evalProg(n, env, ctx);
     case 'pow': {
       const b = evalNode(n.b, env, ctx), e = evalNode(n.e, env, ctx);
       if (b instanceof Mat) {
@@ -105,11 +106,16 @@ function cmpVals(a, b) { // сравнение с учётом единиц (0 �
   if (a instanceof Q || b instanceof Q) { if (!isZeroVal(a) && !isZeroVal(b) && !dimEq(qd(a), qd(b))) throw unitMismatch(a, b); return toNum(qv(a)) - toNum(qv(b)); }
   return toNum(a) - toNum(b);
 }
+const CMP_OPS = new Set(['<', '>', '≤', '≥']);
 function evalBin(n, env, ctx) {
   const op = n.op;
   if (op === '∧') return toNum(evalNode(n.l, env, ctx)) !== 0 && toNum(evalNode(n.r, env, ctx)) !== 0 ? 1 : 0;
   if (op === '∨') return toNum(evalNode(n.l, env, ctx)) !== 0 || toNum(evalNode(n.r, env, ctx)) !== 0 ? 1 : 0;
   // неявное умножение «имя(…)» уже разобрано как вызов
+  if (CMP_OPS.has(op) && n.l.type === 'bin' && CMP_OPS.has(n.l.op)) { // −2 ≤ x ≤ 0 — двойное неравенство Mathcad
+    if (toNum(evalNode(n.l, env, ctx)) === 0) return 0;
+    return evalBin({ type: 'bin', op, l: n.l.r, r: n.r }, env, ctx);
+  }
   const a = evalNode(n.l, env, ctx), b = evalNode(n.r, env, ctx);
   if (op === '·' && b instanceof TempScale) return tempApply(chk(a), b); // 20 °C
   if (op === '·' && a instanceof TempScale) return tempApply(chk(b), a);
@@ -155,6 +161,7 @@ function evalSub(n, env, ctx) {
   return base.get(i, j);
 }
 function evalCall(n, env, ctx) {
+  tick();
   const user = env.get(n.f);
   if (user instanceof Fn) return ctx.callFn(user, n.args.map(a => evalArg(a, env, ctx)));
   if (user !== undefined) { // переменная: x(a) — умножение
@@ -202,8 +209,88 @@ function freeRanges(n, env, bound, out) {
   if (n.type === 'id' && !bound.has(n.name) && env.get(keyOf(n)) instanceof Rng && !out.includes(keyOf(n))) out.push(keyOf(n));
   if (n.type === 'sub' && n.e.type === 'id') { /* базовое имя индексируется — проверим индекс */ }
   let nb = bound;
+  if (n.type === 'prog') { nb = new Set(bound); progLocals(n, nb); return freeRanges(n.lines, env, nb, out); }
   if ((n.type === 'sum' || n.type === 'prod' || n.type === 'int') && n.v) { nb = new Set(bound); nb.add(n.v); }
   for (const k in n) if (k !== 'type' && n[k] && typeof n[k] === 'object') freeRanges(n[k], env, (k === 'body' ? nb : bound), out);
   return out;
 }
 
+
+// ───────────────────────── Программы Mathcad (блок «|») ─────────────────────────
+// Строки выполняются по порядку в одном локальном окружении; значение программы — последнее вычисленное.
+// if/otherwise: otherwise выполняется, если ни одно из идущих подряд перед ним if не сработало.
+const PROG_STEPS = 2e7; // защита от бесконечного цикла (пересчёт ещё и в фоне, с кнопкой «Стоп»)
+class ProgSignal { constructor(kind, v) { this.kind = kind; this.v = v; } }
+function progLocals(n, set) {
+  (function w(q) { if (!q || typeof q !== 'object') return; if (Array.isArray(q)) return q.forEach(w);
+    if (q.k === 'set') { const l = q.lhs; if (l.type === 'id') set.add(keyOf(l)); else if (l.type === 'sub' && l.e.type === 'id') set.add(keyOf(l.e)); else if (l.type === 'matrix') l.rows.forEach(r => r.forEach(c => c.type === 'id' && set.add(c.name))); }
+    if (q.k === 'for') set.add(q.v);
+    for (const k in q) if (q[k] && typeof q[k] === 'object') w(q[k]); })(n.lines);
+}
+function setIndexed(cur, idx, v) {
+  let M = cur instanceof Mat ? new Mat(cur.r, cur.c, cur.a.slice()) : (cur === undefined || isNum(cur) ? new Mat(0, 1, []) : null);
+  if (!M) throw err('Индекс применяется только к массиву');
+  const i = idx[0], j = idx.length > 1 ? idx[1] : 0;
+  if (i < 0 || j < 0) throw err('Отрицательный индекс');
+  if (i >= M.r || j >= M.c) { const nr = Math.max(M.r, i + 1), nc = Math.max(M.c, j + 1); const N = new Mat(nr, nc); for (let p = 0; p < M.r; p++) for (let q = 0; q < M.c; q++) N.set(p, q, M.get(p, q)); M = N; }
+  M.set(i, j, v); return M;
+}
+function rangeVals(r, env, ctx) {
+  if (r.type === 'range') {
+    const a = toNum(evalNode(r.a, env, ctx)), b = toNum(evalNode(r.b, env, ctx));
+    let step = a <= b ? 1 : -1; if (r.s) step = toNum(evalNode(r.s, env, ctx)) - a;
+    if (step === 0 || (b - a) / step < 0) return [];
+    const cnt = Math.floor((b - a) / step + 1e-9) + 1; const out = []; for (let k = 0; k < cnt; k++) out.push(+(a + k * step).toPrecision(15)); return out;
+  }
+  const v = evalNode(r, env, ctx);
+  if (v instanceof Rng) return v.vals; if (v instanceof Mat) return v.a.slice(); return [v];
+}
+function evalProg(n, env, ctx) {
+  const local = env.child(); const st = { steps: 0 };
+  try { return runProg(n, local, ctx, st); }
+  catch (e) { if (e instanceof ProgSignal) { if (e.kind === 'return') return e.v; throw err('«' + e.kind + '» вне цикла'); } throw e; }
+}
+function runProg(n, local, ctx, st) {
+  let last, ifRun = null; // ifRun: null — нет цепочки if; false/true — сработал ли хоть один if
+  for (const L of n.lines) {
+    if (++st.steps > PROG_STEPS) throw err('Программа выполняется слишком долго (бесконечный цикл?)'); tick();
+    if (L.k !== 'if' && L.k !== 'else') ifRun = null;
+    switch (L.k) {
+      case 'expr': last = evalNode(L.e, local, ctx); break;
+      case 'set': last = progSet(L, local, ctx); break;
+      case 'if': if (ifRun === null) ifRun = false; if (toNum(evalNode(L.cond, local, ctx), 'Условие if') !== 0) { ifRun = true; last = runProg(L.body, local, ctx, st); } break;
+      case 'else': if (!ifRun) last = runProg(L.body, local, ctx, st); ifRun = null; break;
+      case 'for': {
+        for (const x of rangeVals(L.range, local, ctx)) {
+          local.set(L.v, x);
+          try { last = runProg(L.body, local, ctx, st); } catch (e) { if (e instanceof ProgSignal && e.kind === 'break') break; if (e instanceof ProgSignal && e.kind === 'continue') continue; throw e; }
+        }
+        break;
+      }
+      case 'while': {
+        while (toNum(evalNode(L.cond, local, ctx), 'Условие while') !== 0) {
+          if (++st.steps > PROG_STEPS) throw err('Цикл while выполняется слишком долго'); tick();
+          try { last = runProg(L.body, local, ctx, st); } catch (e) { if (e instanceof ProgSignal && e.kind === 'break') break; if (e instanceof ProgSignal && e.kind === 'continue') continue; throw e; }
+        }
+        break;
+      }
+      case 'break': case 'continue': throw new ProgSignal(L.k);
+      case 'return': throw new ProgSignal('return', evalNode(L.e, local, ctx));
+      case 'onerr': try { last = runProg(L.body, local, ctx, st); } catch (e) { if (e instanceof ProgSignal) throw e; last = runProg(L.alt, local, ctx, st); } break;
+    }
+  }
+  if (last === undefined) throw err('Программа не вернула значения');
+  return last;
+}
+function progSet(L, local, ctx) {
+  const lhs = L.lhs; const v = evalNode(L.rhs, local, ctx);
+  if (lhs.type === 'id') { local.set(keyOf(lhs), v); return v; }
+  if (lhs.type === 'sub' && lhs.e.type === 'id') {
+    if (!lhs.ix) { local.set(lhs.e.name + '_' + lhs.raw, v); return v; }
+    const name = keyOf(lhs.e); const o = ORIGIN(local);
+    const idx = lhs.ix.map(x => toInt(evalNode(x, local, ctx)) - o);
+    local.set(name, setIndexed(local.get(name), idx, toScalar(v))); return v;
+  }
+  if (lhs.type === 'matrix') { const names = [].concat(...lhs.rows); const vals = vecOf(v); if (vals.length !== names.length) throw err('Слева ' + names.length + ' имён, справа ' + vals.length); names.forEach((nm, k) => { if (nm.type !== 'id') throw err('Слева — имена'); local.set(nm.name, vals[k]); }); return v; }
+  throw err('Неверная левая часть «←»');
+}

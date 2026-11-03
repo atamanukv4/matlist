@@ -2,6 +2,7 @@
 import sys, subprocess, time, os
 from playwright.sync_api import sync_playwright
 ROOT = os.path.join(os.path.dirname(__file__), '..', 'dist', 'apk-assets'); FIX = os.path.join(os.path.dirname(__file__), 'fixtures'); OUT = sys.argv[1]; os.makedirs(OUT, exist_ok=True)
+TGMP = os.path.join(FIX, 'tgmp.xmcd') if os.path.exists(os.path.join(FIX, 'tgmp.xmcd')) else os.path.join(FIX, 'sample24.xmcd')  # личный лист или публичный учебный
 srv = subprocess.Popen([sys.executable, '-m', 'http.server', '8771', '-d', ROOT], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL); time.sleep(0.8)
 ok, bad = [], []
 def check(n, c, i=''): (ok if c else bad).append(n + ('' if c else f' :: {i}'))
@@ -12,12 +13,12 @@ try:
         pg.goto('http://localhost:8771/index.html'); pg.wait_for_function('window.MATLIST_DEBUG !== undefined'); pg.wait_for_timeout(400)
         with pg.expect_file_chooser() as fc:
             pg.click('#bMenu'); pg.click('#mOpen')
-        fc.value.set_files(os.path.join(FIX, 'tgmp.xmcd')); pg.wait_for_timeout(800)
+        fc.value.set_files(TGMP); pg.wait_for_timeout(800)
         r1 = pg.evaluate("MATLIST_DEBUG.S.regions.filter(r => r.res).map(r => r.res)")
         with pg.expect_download() as dl:
             pg.click('#bMenu'); pg.click('#mSave')
         path = os.path.join(OUT, 'tgmp_saved.xmcd'); dl.value.save_as(path)
-        check('файл скачивается с именем листа', dl.value.suggested_filename == 'tgmp.xmcd', dl.value.suggested_filename)
+        check('файл скачивается с именем листа', dl.value.suggested_filename == os.path.basename(TGMP), dl.value.suggested_filename)
         with pg.expect_file_chooser() as fc:
             pg.click('#bMenu'); pg.click('#mOpen')
         fc.value.set_files(path); pg.wait_for_timeout(800)
