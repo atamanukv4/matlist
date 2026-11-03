@@ -31,7 +31,7 @@ function geometry(strokes) {
   const top = tops[tops.length >> 1], bottom = bots[bots.length >> 1], mid = (top + bottom) / 2;
   const raised = strokes.some(s => !isDot(s) && !overBar(s) && s.h > 0.3 * h && s.h < 0.8 * (bottom - top) && s.b < mid - 0.15 * h && s.t < top + 0.1 * h);
   const attached = d => strokes.some(o => o !== d && !isDot(o) && d.cx > o.l - 0.1 * h && d.cx < o.r + 0.1 * h && ((o.t > d.b && o.t - d.b < 0.6 * h) || (o.b < d.t && d.t - o.b < 0.6 * h)));
-  const dots = strokes.filter(s => isDot(s) && !overBar(s) && !attached(s)).sort((a, b) => a.cx - b.cx).map(s => s.cy < bottom - 0.22 * (bottom - top));
+  const dots = strokes.filter(s => isDot(s) && !overBar(s) && !attached(s)).sort((a, b) => a.cx - b.cx).map(s => (bottom - s.cy) / Math.max(bottom - top, 1)); // высота точки над строкой: 0 — на строке, 0.5 — посередине
   return { raised, dots, fractionBars: bars.length };
 }
 function penalty(toks, g) {
@@ -39,7 +39,10 @@ function penalty(toks, g) {
   p += Math.abs(toks.filter(t => t === '\\frac').length - g.fractionBars) * 2;
   p += Math.abs(toks.filter(t => DOT_TOKENS.has(t)).length - g.dots.length); return p;
 }
-function fixDots(toks, g) { const idx = toks.map((t, i) => DOT_TOKENS.has(t) ? i : -1).filter(i => i >= 0); if (!idx.length || idx.length !== g.dots.length) return toks; const o = toks.slice(); idx.forEach((i, k) => { o[i] = g.dots[k] ? '\\cdot' : '.'; }); return o; }
+function fixDots(toks, g) { // точка на строке — десятичная, поднятая — умножение; между цифрами нужна явно поднятая (рукописная запятая часто чуть выше строки)
+  const idx = toks.map((t, i) => DOT_TOKENS.has(t) ? i : -1).filter(i => i >= 0); if (!idx.length || idx.length !== g.dots.length) return toks;
+  const o = toks.slice(); const dig = t => /^[0-9]$/.test(t || '');
+  idx.forEach((i, k) => { const between = dig(toks[i - 1]) && dig(toks[i + 1]); o[i] = g.dots[k] > (between ? 0.42 : 0.22) ? '\\cdot' : '.'; }); return o; }
 function trailingEquals(strokes) { // два штриха «=» в самом конце строки
   if (strokes.length < 3) return null; const h = typicalHeight(strokes);
   const byX = strokes.slice().sort((a, b) => b.cx - a.cx); const a = byX[0], b = byX[1];
@@ -129,7 +132,18 @@ async function recognize(strokes, base, opts) {
 function toLatex(toks) {
   const map = { '\\times': '\\cdot', '\\div': '/', '\\limits': '', '*': '\\cdot', '\\ldots': '..', '\\cdots': '..' };
   let t = toks.map(x => (x in map ? map[x] : x)).filter(Boolean);
-  let s = t.join(' ').replace(/\s+/g, ' ').trim();
+  // числа: цифры подряд — одно число, «4 . 2» и «4 , 2» (десятичная запятая) — 4.2; запятая внутри скобок — разделитель аргументов
+  let depth = 0; const o = [];
+  for (let i = 0; i < t.length; i++) {
+    const x = t[i], prev = o[o.length - 1], next = t[i + 1];
+    if (x === '(' || x === '[' || x === '{' || x === '\\{') depth++; else if (x === ')' || x === ']' || x === '}' || x === '\\}') depth = Math.max(0, depth - 1);
+    const isDig = v => /^[0-9]$/.test(v || '');
+    const prevNum = prev !== undefined && /^[0-9.]+$/.test(prev) && /[0-9]$/.test(prev);
+    if (isDig(x) && prev !== undefined && /^[0-9.]+$/.test(prev)) { o[o.length - 1] = prev + x; continue; } // 1 2 → 12, 4. 2 → 4.2
+    if ((x === '.' || (x === ',' && depth === 0)) && prevNum && isDig(next) && !prev.includes('.')) { o[o.length - 1] = prev + '.'; continue; } // десятичная точка/запятая
+    o.push(x);
+  }
+  let s = o.join(' ').replace(/\s+/g, ' ').trim();
   const m = /^([A-Za-zα-ωΑ-Ω](?:\s*_\s*(?:\{[^{}]*\}|\w))?)\s*=\s*(.+?)$/.exec(s);
   if (m && !/=/.test(m[2])) return m[1] + '\\coloneq ' + m[2];
   return s;
