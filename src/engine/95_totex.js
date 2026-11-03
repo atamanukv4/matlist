@@ -22,6 +22,7 @@ function tex(n, p) {
       return (n.unit || n.u) && /^[A-Za-zμÅΩ_]+$/.test(n.name) ? '\\mathrm{' + n.name.replace(/_/g, '\\_') + '}' : nameToTex(n.name);
     case 'paren': return '\\left(' + tex(n.e, 0) + '\\right)';
     case 'prog': return progTex(n);
+    case 'lset': return '\\left(' + tex(n.lhs, 0) + '\\leftarrow ' + tex(n.rhs, 0) + '\\right)';
     case 'neg': return wrap('-' + tex(n.e, PREC.neg), PREC.neg);
     case 'un': return wrap('\\neg ' + tex(n.e, PREC.neg), PREC.neg);
     case 'bin': {

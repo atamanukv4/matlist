@@ -50,6 +50,7 @@ class Parser {
         if (x.v === 'left' || x.v === 'right' || x.v === 'bigl' || x.v === 'bigr' || x.v === 'Bigl' || x.v === 'Bigr') {
           const nx = this.t[i + 1];
           if (nx && nx.v === '.') { i++; continue; } // \left. пустая скобка
+          if (nx && (nx.v === '|' || nx.v === 'vert' || nx.v === 'lvert' || nx.v === 'rvert')) { out.push({ k: 'ch', v: '|', side: /^(left|bigl|Bigl)$/.test(x.v) ? 'L' : 'R' }); i++; continue; } // \left| открывает модуль, \right| закрывает
           continue;
         }
         if (GREEK[x.v]) { out.push({ k: 'ch', v: GREEK[x.v] }); continue; }
@@ -199,6 +200,9 @@ class Parser {
   }
   absOpensHere() { // «|» начинает модуль, если дальше есть парная «|»
     if (this.progAt(this.p + 1)) return false; // «|» программы — не модуль и не умножение
+    { const cur = this.t[this.p]; if (cur.side === 'R') return false; if (cur.side === 'L') return true; } // из MathLive известно, открывающая это черта или закрывающая
+    { const nx = this.t[this.p + 1]; if (nx && nx.k === 'ch' && nx.v === '|') return false; } // «||» — закрытие нормы ‖v‖
+    if (this.absDepth > 0) return false; // внутри |…| простая черта закрывает модуль
     let d = 0;
     for (let i = this.p + 1; i < this.t.length; i++) { const x = this.t[i]; if (x.v === '{' || x.v === '(') d++; if (x.v === '}' || x.v === ')') d--; if (d < 0) return false; if (d === 0 && x.v === '|') return true; }
     return false;
@@ -225,7 +229,7 @@ class Parser {
         const lit = toks.length && toks[0].k === 'cmd' && (toks[0].v === 'mathrm' || toks[0].v === 'text');
         const raw = this.groupRaw(toks);
         if (e.type === 'id' && !toks.length) { e = { type: 'id', name: e.name + '_' }; continue; } // x_{\,} — имя с пустым индексом (Mathcad)
-        if (lit || e.type !== 'id') {
+        if (lit || e.type !== 'id' || /[А-Яа-яЁё]/.test(raw)) { // \mathrm{…} или русские буквы — часть имени (P_вх), не индекс массива
           if (e.type === 'id') { e = { type: 'id', name: e.name + '_' + raw }; continue; }
         }
         let ix = null; try { const p = this.sub(toks); const tmp = []; tmp.push(p.parseExpr()); while (p.is(',')) { p.next(); tmp.push(p.parseExpr()); } if (p.eof()) ix = tmp; } catch (x) { ix = null; }
@@ -255,7 +259,7 @@ class Parser {
     let name = first;
     while (!this.eof()) {
       const x = this.peek();
-      if (x.k === 'ch' && /^[A-Za-zА-Яа-яЁё0-9α-ωΑ-Ωϑϱς]$/.test(x.v)) { name += x.v; this.next(); continue; }
+      if (x.k === 'ch' && /^[A-Za-zА-Яа-яЁё0-9α-ωΑ-Ωϑϱςϕϵϖϰ]$/.test(x.v)) { name += x.v; this.next(); continue; }
       if (x.k === 'num' && /^[0-9]+$/.test(x.v)) { name += x.v; this.next(); continue; }
       break;
     }
@@ -268,17 +272,18 @@ class Parser {
     if (x.k === 'imag') return { type: 'imag', v: parseFloat(x.v) };
     if (x.k === 'ch') {
       if (x.v === '■') throw err('Заполните пустое место ■');
-      if (x.v === '(') { const e = this.parseExpr(); if (this.is(',')) { /* кортеж не поддерживается */ } this.expect(')'); return { type: 'paren', e }; }
+      if (x.v === '(') { let e = this.parseExpr(); if (this.is('←')) { this.next(); e = { type: 'lset', lhs: e, rhs: this.parseExpr() }; } this.expect(')'); return { type: 'paren', e }; }
       if (x.v === '[') { const e = this.parseExpr(); this.expect(']'); return { type: 'paren', e }; }
       if (x.v === '{') { this.p--; const toks = this.groupTokens(); const p = this.sub(toks); const e = p.parseRangeOrExpr(); if (!p.eof()) throw err('Не удалось разобрать: ' + p.restText()); return e; }
       if (x.v === '|' && this.progAt(this.p)) return this.parseProgram();
-      if (x.v === '|') { const e = this.parseExpr(); this.expect('|'); return { type: 'abs', e }; }
+      if (x.v === '|' && this.is('|')) { this.next(); const e = this.parseExpr(); this.expect('|'); this.expect('|'); return { type: 'abs', e: { type: 'abs', e } }; } // ‖v‖ — модуль модуля, как в Mathcad
+      if (x.v === '|') { this.absDepth = (this.absDepth || 0) + 1; let e; try { e = this.parseExpr(); } finally { this.absDepth--; } this.expect('|'); return { type: 'abs', e }; }
       if (x.v === '∞') return { type: 'num', v: 1e307 };
       if (x.v === '%') return { type: 'id', name: '%', u: true }; // встроенная единица Mathcad: 11·% = 0.11
       if (x.v === '°') return { type: 'id', name: this.degName() };
       if (x.v === 'Δ' && this.is('°')) { this.next(); return { type: 'id', name: 'Δ' + this.degName() }; }
       if (x.v === 'ⅆ') throw err('Неожиданный дифференциал d');
-      if (/^[A-Za-zА-Яа-яЁёα-ωΑ-Ωϑϱς]$/.test(x.v)) return { type: 'id', name: this.readIdent(x.v) };
+      if (/^[A-Za-zА-Яа-яЁёα-ωΑ-Ωϑϱςϕϵϖϰ]$/.test(x.v)) return { type: 'id', name: this.readIdent(x.v) };
       if (x.v === '"') { let s = ''; while (!this.eof() && !this.is('"')) s += this.next().v; this.expect('"'); return { type: 'str', v: s }; }
       throw err('Неожиданный символ «' + x.v + '»');
     }
@@ -358,14 +363,15 @@ class Parser {
       else if (this.is('^')) { this.next(); hi = this.groupExpr(); }
     }
     // тело до d<var>
-    const st = this.p; let d = 0, dAt = -1;
+    const st = this.p; let d = 0, dAt = -1, nest = 0; // nest — вложенные ∫ без скобок: их d x идут раньше нашего
     for (let i = this.p; i < this.t.length; i++) {
       const x = this.t[i];
       if (x.v === '{' || x.v === '(') d++; if (x.v === '}' || x.v === ')') d--;
       if (d < 0) break;
+      if (d === 0 && x.k === 'cmd' && x.v === 'int') { nest++; continue; }
       if (d === 0 && (this.isD(x) || (x.k === 'cmd' && (x.v === 'mathrm' || x.v === 'text') && this.t[i + 1] && this.t[i + 1].v === '{' && this.t[i + 2] && this.t[i + 2].v === 'd' && this.t[i + 3] && this.t[i + 3].v === '}'))) {
         const after = x.k === 'cmd' ? this.t[i + 4] : this.t[i + 1];
-        if (after && after.k === 'ch' && /^[A-Za-zА-Яа-яα-ω]$/.test(after.v)) { dAt = i; if (x.k === 'cmd' || (i > st)) break; }
+        if (after && after.k === 'ch' && /^[A-Za-zА-Яа-яα-ω]$/.test(after.v) && (x.k === 'cmd' || i > st)) { if (nest > 0) { nest--; continue; } dAt = i; break; }
       }
     }
     if (dAt < 0) throw err('В интеграле нет «d x»');

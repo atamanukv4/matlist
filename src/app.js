@@ -34,7 +34,7 @@ function applyOut(r, st, out) {
 }
 function recompute() {
   stopWorker(true);
-  const R = new E.SheetRunner(S.origin || 0); const list = sorted(); const t0 = Date.now(); let from = -1;
+  const R = new E.SheetRunner(S.origin || 0); const list = E.calcOrder(S.regions); const t0 = Date.now(); let from = -1;
   list.forEach((r, i) => {
     r._series = null;
     if (r.kind === 'math') { r.res = null; r.err = null; r.tbl = false; r.role = null; r.pending = false; }
@@ -266,11 +266,13 @@ function activate(r, tap) {
   else if (r.kind === 'plot') openPlot(r);
   else if (r.kind === 'note' || r.kind === 'image') { const el = page.querySelector('[data-id="' + r.id + '"]'); el.classList.add('sel'); showBar(el, r); }
 }
+// индекс-подпись (P_вх, Q_max) показывается прямым шрифтом, как литеральный индекс Mathcad; t_i и x_1 не трогаем
+function tidySubs(t) { return t.replace(/_\{([A-Za-zА-Яа-яЁё0-9]+)\}/g, (m, x) => (/[А-Яа-яЁё]/.test(x) || /[A-Za-z].*[A-Za-z]/.test(x)) ? '_{\\mathrm{' + x + '}}' : m); }
 function commit(moveDown) {
   hideBar();
   if (!active) return;
   const r = active.r; const mf = active.mf;
-  if (mf) r.latex = mf.getValue('latex').trim();
+  if (mf) r.latex = tidySubs(mf.getValue('latex').trim());
   active = null; targetMf = null;
   if (!r.latex) S.regions = S.regions.filter(x => x !== r);
   else if (moveDown) { const el = page.querySelector('[data-id="' + r.id + '"]'); const hgt = el ? el.offsetHeight : 24; S.cursor = { x: r.x, y: r.y + hgt + 14 }; }

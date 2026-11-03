@@ -43,6 +43,7 @@ function conv(el) {
     case 'function': { const k = kids(el); const name = idName(k[0]); const params = kids(k[1]).map(x => ({ type: 'id', name: idName(x) })); return { type: 'call', f: name, args: params }; }
     case 'apply': return convApply(el);
     case 'program': return { type: 'prog', lines: kids(el).map(progLine) };
+    case 'localDefine': { const k = kids(el); return { type: 'lset', lhs: conv(k[0]), rhs: conv(k[1]) }; } // присваивание внутри выражения: c_(n ← last(c))
     case 'sequence': return unsupported('последовательность');
     case 'unitOverride': return null;
     case 'provenance': { const k = kids(el).filter(c => el.namespaceURI ? c.namespaceURI === el.namespaceURI : /^ml:/.test(c.nodeName)); return conv(k[k.length - 1]); }
@@ -321,6 +322,9 @@ function ml(n) {
     case 'vectorize': return ap('vectorize', ml(n.e));
     case 'col': return ap('matcol', ml(n.e), ml(n.j));
     case 'sub': {
+      // индекс из имён, которых лист не определяет (Q_max, P_вх) — литеральный индекс Mathcad (часть имени), как в ядре
+      if (n.e.type === 'id' && (!n.ix || JSON.stringify(n.ix).match(/"type":"id","name":"[^"]*"/g)?.some(m => !EXP_DEFINED.has(JSON.parse('{' + m + '}').name))))
+        return mlId(n.e.name + '_' + n.raw, n.e);
       if (!n.ix) throw new Unsupported('индекс');
       return ap('indexer', ml(n.e), args(n.ix));
     }
@@ -335,6 +339,7 @@ function ml(n) {
     case 'deriv': return '<ml:apply><ml:derivative/>' + lam(n.v, n.e) + (n.order > 1 ? '<ml:degree>' + mlNum(n.order) + '</ml:degree>' : '') + '</ml:apply>';
     case 'sum': case 'prod': return '<ml:apply><ml:' + (n.type === 'sum' ? 'summation' : 'product') + '/>' + lam(n.v, n.body) + (n.from ? '<ml:bounds>' + ml(n.from) + ml(n.to) + '</ml:bounds>' : '') + '</ml:apply>';
     case 'prog': return mlProg(n);
+    case 'lset': return '<ml:localDefine>' + ml(n.lhs) + ml(n.rhs) + '</ml:localDefine>';
   }
   throw new Unsupported(n.type);
 }
@@ -372,7 +377,7 @@ function exportXmcd(regions, settings, parse) {
   };
   const sortedRegs = regions.slice().sort((a, b) => (a.y + (a.ady || 0)) - (b.y + (b.ady || 0)) || a.x - b.x);
   EXP_DEFINED = new Set();
-  for (const r of sortedRegs) if (r.kind === 'math' && r.latex) { try { const st = parse(r.latex); if (st.type === 'define') { const l = st.lhs; const n = l.type === 'id' ? l : l.type === 'sub' ? l.e : null; if (n && n.type === 'id' && !n.u) EXP_DEFINED.add(n.name); if (l.type === 'call') l.args.forEach(a => a.type === 'id' && EXP_DEFINED.add(a.name)); } } catch (e) { /* пропуск */ } }
+  for (const r of sortedRegs) if (r.kind === 'math' && r.latex) { try { const st = parse(r.latex); if (st.type === 'define') { const l = st.lhs; const n = l.type === 'id' ? l : l.type === 'sub' ? l.e : null; if (n && n.type === 'id' && !n.u) EXP_DEFINED.add(n.name); if (l.type === 'call') l.args.forEach(a => a.type === 'id' && EXP_DEFINED.add(a.name)); } (function w(q) { if (!q || typeof q !== 'object') return; if (Array.isArray(q)) return q.forEach(w); if (q.k === 'for') EXP_DEFINED.add(q.v); if (q.k === 'set' && q.lhs.type === 'id') EXP_DEFINED.add(q.lhs.name); if ((q.type === 'sum' || q.type === 'prod' || q.type === 'int') && q.v) EXP_DEFINED.add(q.v); for (const k in q) if (q[k] && typeof q[k] === 'object') w(q[k]); })(st); } catch (e) { /* пропуск */ } }
   // прогон листа ядром: нужен для систем уравнений (их решение — начальные приближения для Find в Mathcad)
   const runner = new E.SheetRunner(settings.origin || 0);
   const mathReg = (x, y, h, mlText) => reg(x, y, 140, h, '<math optimize="false" disable-calc="false">' + mlText + '</math>');

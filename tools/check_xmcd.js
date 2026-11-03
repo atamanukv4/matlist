@@ -26,7 +26,7 @@ function one(f) {
   const t0 = Date.now(); let imp;
   try { imp = X.importXmcd(fs.readFileSync(f, 'utf8'), DOMParser); } catch (e) { console.log(JSON.stringify({ status: 'NOIMP', msg: 'импорт: ' + e.message })); return; }
   const tImp = Date.now() - t0;
-  const math = imp.regions.filter(r => r.kind === 'math').sort((a, b) => ((a.y + (a.ady || 0)) - (b.y + (b.ady || 0))) || (a.x - b.x)) // как sorted() в app.js;
+  const math = E.calcOrder(imp.regions).filter(r => r.kind === 'math'); // порядок счёта как в app.js
   const R = new E.SheetRunner(imp.settings.origin || 0);
   let ok = 0, bad = 0, cmp = 0, cmpBad = 0, slow = []; const errs = {}, mism = [];
   const unsup = imp.regions.filter(r => r.kind === 'unsupported' || r.unsupported).length;

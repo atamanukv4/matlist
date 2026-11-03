@@ -39,6 +39,7 @@ function evalNode(n, env, ctx) {
     case 'un': return toNum(evalNode(n.e, env, ctx)) === 0 ? 1 : 0;
     case 'bin': return evalBin(n, env, ctx);
     case 'prog': return evalProg(n, env, ctx);
+    case 'lset': return progSet({ lhs: n.lhs, rhs: n.rhs }, env, ctx);
     case 'pow': {
       const b = evalNode(n.b, env, ctx), e = evalNode(n.e, env, ctx);
       if (b instanceof Mat) {
@@ -223,7 +224,7 @@ const PROG_STEPS = 2e7; // защита от бесконечного цикла
 class ProgSignal { constructor(kind, v) { this.kind = kind; this.v = v; } }
 function progLocals(n, set) {
   (function w(q) { if (!q || typeof q !== 'object') return; if (Array.isArray(q)) return q.forEach(w);
-    if (q.k === 'set') { const l = q.lhs; if (l.type === 'id') set.add(keyOf(l)); else if (l.type === 'sub' && l.e.type === 'id') set.add(keyOf(l.e)); else if (l.type === 'matrix') l.rows.forEach(r => r.forEach(c => c.type === 'id' && set.add(c.name))); }
+    if (q.k === 'set' || q.type === 'lset') { const l = q.lhs; if (l.type === 'id') set.add(keyOf(l)); else if (l.type === 'sub' && l.e.type === 'id') set.add(keyOf(l.e)); else if (l.type === 'matrix') l.rows.forEach(r => r.forEach(c => c.type === 'id' && set.add(c.name))); }
     if (q.k === 'for') set.add(q.v);
     for (const k in q) if (q[k] && typeof q[k] === 'object') w(q[k]); })(n.lines);
 }
@@ -286,7 +287,7 @@ function progSet(L, local, ctx) {
   const lhs = L.lhs; const v = evalNode(L.rhs, local, ctx);
   if (lhs.type === 'id') { local.set(keyOf(lhs), v); return v; }
   if (lhs.type === 'sub' && lhs.e.type === 'id') {
-    if (!lhs.ix) { local.set(lhs.e.name + '_' + lhs.raw, v); return v; }
+    if (literalSub(lhs, local)) { local.set(lhs.e.name + '_' + lhs.raw, v); return v; }
     const name = keyOf(lhs.e); const o = ORIGIN(local);
     const idx = lhs.ix.map(x => toInt(evalNode(x, local, ctx)) - o);
     local.set(name, setIndexed(local.get(name), idx, toScalar(v))); return v;

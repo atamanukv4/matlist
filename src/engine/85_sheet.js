@@ -9,6 +9,18 @@ function execStatement(st, env, opts) {
   }
   return res;
 }
+// индекс в левой части — часть имени, если в нём есть имена, не заданные в листе (Q_max, a_b, x_e, t_i без i;
+// константы e, i и единицы s, m индексом массива не считаются — это почти всегда подпись)
+function literalSub(lhs, env) {
+  if (!lhs.ix) return true;
+  if (env.has(lhs.e.name + '_' + lhs.raw)) return true; // уже есть такая переменная
+  { const base = env.get(keyOf(lhs.e)); if (base !== undefined && !(base instanceof Mat)) return true; } // P := 10, затем P_1 := 5 — это другая переменная, а не элемент
+  let undef = false;
+  (function w(q) { if (undef || !q || typeof q !== 'object') return; if (Array.isArray(q)) return q.forEach(w);
+    if (q.type === 'id' && !env.has(keyOf(q))) { undef = true; return; } // единица (s, m) индексом быть не может
+    for (const k in q) if (q[k] && typeof q[k] === 'object') w(q[k]); })(lhs.ix);
+  return undef;
+}
 function execStatement0(st, env, opts) {
   const ctx = new Ctx(env, opts);
   if (st.type === 'empty') return { env };
@@ -37,13 +49,18 @@ function execStatement0(st, env, opts) {
       if (value instanceof Fn && st.rhs.type === 'id') value = new Fn(value.params, value.body, value.env, lhs.name);
       newEnv.set(keyOf(lhs), value); return { env: newEnv, value: st.show ? value : undefined, name: lhs.name };
     }
-    if (lhs.type === 'matrix' && lhs.rows.every(r => r.length === 1 && (r[0].type === 'id' || r[0].type === 'sub'))) { // [x; y] := …
-      const names = lhs.rows.map(r => r[0].type === 'id' ? r[0].name : (r[0].e.name + '_' + r[0].raw));
+    if (lhs.type === 'matrix' && (lhs.rows.length === 1 || lhs.rows.every(r => r.length === 1)) && [].concat(...lhs.rows).every(c => c.type === 'id' || c.type === 'sub')) { // [x; y] := … или [a b c] := …
+      const names = [].concat(...lhs.rows).map(c => c.type === 'id' ? c.name : (c.e.name + '_' + c.raw));
       let v = st.rhs.type === 'system' ? solveSystem(st.rhs, env, ctx, names.filter(nm => env.get(nm) === undefined).length === names.length ? names : names) : evalNode(st.rhs, env, ctx);
       const vals = v instanceof Sol ? names.map(nm => { const k = v.names.indexOf(nm); if (k < 0) throw err('В системе нет неизвестной ' + prettyName(nm)); return v.vals[k]; }) : vecOf(v);
       if (vals.length !== names.length) throw err('Слева ' + names.length + ' имён, справа ' + vals.length + ' значений');
       let e2 = env; names.forEach((nm, k) => { e2 = e2.child(); e2.set(nm, vals[k]); });
       return { env: e2, value: st.show ? colVec(vals) : undefined, name: names.join(',') };
+    }
+    if (lhs.type === 'sub' && lhs.e.type === 'id' && literalSub(lhs, env)) { // Q_max := …, x_i := … при неопределённом i — индекс как часть имени (как «.» в Mathcad)
+      const name = lhs.e.name + '_' + lhs.raw; const fr = freeRanges(st.rhs, env, new Set(), []);
+      if (fr.length) throw err('Справа ранжированная переменная «' + fr[0] + '»');
+      value = evalNode(st.rhs, env, ctx); newEnv.set(name, value); return { env: newEnv, value: st.show ? value : undefined, name };
     }
     if (lhs.type === 'sub' && lhs.e.type === 'id') { // x_i := … (заполнение массива) или x_1 := …
       const name = keyOf(lhs.e); const o = ORIGIN(env);
@@ -151,3 +168,10 @@ class SheetRunner {
   }
 }
 
+
+// порядок счёта как в Mathcad: сначала глобальные определения (≡), затем всё по базовой линии сверху вниз, слева направо
+function calcOrder(regions) {
+  const byLine = regions.slice().sort((a, b) => ((a.y + (a.ady || 0)) - (b.y + (b.ady || 0))) || (a.x - b.x));
+  const isGlobal = r => r.kind === 'math' && r.latex && /\\equiv/.test(r.latex);
+  return byLine.filter(isGlobal).concat(byLine.filter(r => !isGlobal(r)));
+}
