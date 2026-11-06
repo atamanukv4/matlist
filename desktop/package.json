@@ -1,0 +1,69 @@
+{
+  "name": "matlist-desktop",
+  "productName": "Матлист",
+  "version": "0.8.0",
+  "description": "Матлист — рабочий лист в духе Mathcad 15",
+  "author": "Матлист",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "prepare-app": "node prepare.js",
+    "start": "node prepare.js && electron .",
+    "dist:win": "node prepare.js && electron-builder --win nsis --x64 --publish never"
+  },
+  "devDependencies": {
+    "electron": "33.4.11",
+    "electron-builder": "25.1.8",
+    "resedit": "^2.0.3"
+  },
+  "build": {
+    "appId": "ru.matlist.desktop",
+    "productName": "Матлист",
+    "artifactName": "Matlist-Setup-${version}.${ext}",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "app/**/*",
+      "build/icon.png"
+    ],
+    "asar": true,
+    "asarUnpack": [],
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.ico",
+      "executableName": "Matlist",
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Матлист",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerLanguages": [
+        "ru_RU"
+      ],
+      "language": "1049",
+      "unicode": true
+    },
+    "fileAssociations": [
+      {
+        "ext": "xmcd",
+        "name": "Mathcad XMCD",
+        "description": "Лист Mathcad",
+        "icon": "build/icon.ico",
+        "role": "Editor"
+      }
+    ],
+    "afterPack": "./afterPack.js",
+    "publish": null
+  },
+  "repository": "github:atamanukv4/matlist"
+}

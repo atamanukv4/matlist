@@ -1,0 +1,35 @@
+# Установщик Матлиста для Windows (Electron + NSIS): та же страница, что в APK, в окне ПК.
+# Запуск вручную (Actions → «Сборка для Windows» → Run workflow). Результат — артефакт Matlist-Setup-*.exe.
+name: Сборка для Windows
+
+on:
+  workflow_dispatch:
+
+jobs:
+  win:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Модель рукописного ввода (релиз model-onnx)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p model
+          gh release download model-onnx -R ${{ github.repository }} -p encoder.onnx -p decoder_q.onnx -p vocab.txt -D model || echo "модели нет — без рукописного ввода"
+      - name: Веб-ядро
+        run: |
+          npm ci
+          node build.js
+      - name: Установщик
+        working-directory: desktop
+        run: |
+          npm ci
+          npm run dist:win
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Matlist-Windows
+          path: desktop/dist/*.exe
